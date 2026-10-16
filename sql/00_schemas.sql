@@ -1,0 +1,110 @@
+-- TAT Guard schema. SYNTHETIC stand-in layouts (our own design, NOT the real NPCI/switch/CBS formats).
+-- Money is integer paise (DECIMAL(18,0)), never floating point.
+
+CREATE SCHEMA IF NOT EXISTS RAW;
+CREATE SCHEMA IF NOT EXISTS RECON;
+CREATE SCHEMA IF NOT EXISTS AUDIT;
+-- DESIGN: ground truth lives in its own schema so the agent's read-only DB user (granted RAW, RECON, AUDIT)
+-- can never see it. Only verify/ reads it.
+CREATE SCHEMA IF NOT EXISTS VERIFIER;   -- (VERIFY is a reserved word in Exasol)
+
+-- Stand-in for the NPCI-side settlement record
+CREATE OR REPLACE TABLE RAW.NPCI_SETTLEMENT (
+  UPI_TXN_ID     VARCHAR(40),
+  RRN            VARCHAR(20),
+  TXN_TS         TIMESTAMP,
+  SETTLEMENT_DT  DATE,
+  CYCLE_NO       DECIMAL(3,0),
+  AMOUNT_PAISE   DECIMAL(18,0),
+  PAYER_BANK     VARCHAR(20),
+  PAYEE_BANK     VARCHAR(20),
+  TXN_TYPE       VARCHAR(10),
+  RESP_CODE      VARCHAR(10),
+  STATUS         VARCHAR(10)
+);
+
+-- Stand-in for the bank's UPI switch log
+CREATE OR REPLACE TABLE RAW.SWITCH_LOG (
+  UPI_TXN_ID   VARCHAR(40),
+  RRN          VARCHAR(20),
+  TXN_TS       TIMESTAMP,
+  AMOUNT_PAISE DECIMAL(18,0),
+  STATUS       VARCHAR(10),
+  RESP_CODE    VARCHAR(10),
+  CHANNEL      VARCHAR(20)
+);
+
+-- Stand-in for the CBS ledger: often only the free-text narration carries the reference
+CREATE OR REPLACE TABLE RAW.CBS_LEDGER (
+  CBS_ENTRY_ID      VARCHAR(40),
+  ACCOUNT_NO_MASKED VARCHAR(20),
+  POST_TS           TIMESTAMP,
+  DR_CR             CHAR(2),
+  AMOUNT_PAISE      DECIMAL(18,0),
+  NARRATION         VARCHAR(500)
+);
+
+-- DESIGN extension to 01 §3: arrival log of settlement files (one row per settlement date x cycle).
+-- ARRIVED_TS IS NULL = file not received yet. Drives the LATE_FILE class and root-cause step 2.
+CREATE OR REPLACE TABLE RAW.SETTLEMENT_FILE_LOG (
+  SETTLEMENT_DT  DATE,
+  CYCLE_NO       DECIMAL(3,0),
+  CYCLE_START_TS TIMESTAMP,
+  CYCLE_END_TS   TIMESTAMP,
+  EXPECTED_TS    TIMESTAMP,
+  ARRIVED_TS     TIMESTAMP,
+  RECORD_COUNT   DECIMAL(18,0)
+);
+
+-- Ground truth from the generator. NEVER read by the matcher (sql/1x, recon/) or the agent, only by verify/.
+DROP TABLE IF EXISTS RECON.GROUND_TRUTH;   -- older layout kept it in RECON
+CREATE OR REPLACE TABLE VERIFIER.GROUND_TRUTH (
+  UPI_TXN_ID      VARCHAR(40),
+  INJECTED_BREAK  VARCHAR(40),
+  EXPECTED_CLASS  VARCHAR(40),
+  TXN_TYPE        VARCHAR(10),
+  TXN_DT          DATE,
+  AMOUNT_PAISE    DECIMAL(18,0),
+  REVERSAL_DT     DATE,
+  COMP_PAID_PAISE DECIMAL(18,0)
+);
+
+-- Settings loaded by recon/pipeline.py from recon/config.yaml and facts.yaml (never typed into SQL)
+CREATE OR REPLACE TABLE RECON.SETTINGS (PARAM_NAME VARCHAR(100), PARAM_VALUE VARCHAR(2000));
+CREATE OR REPLACE TABLE RECON.TAT_RULES (
+  TXN_TYPE VARCHAR(10), CASE_NAME VARCHAR(20), TAT_DAYS DECIMAL(3,0), PAISE_PER_DAY DECIMAL(18,0), FACT_ID VARCHAR(40)
+);
+CREATE OR REPLACE TABLE RECON.RESP_CODE_MAP (RESP_CODE VARCHAR(10), CATEGORY VARCHAR(30));
+CREATE OR REPLACE TABLE RECON.NARRATION_KIND (KIND VARCHAR(20), PATTERN VARCHAR(500), PRIORITY DECIMAL(3,0));
+
+-- Measured step timings of every pipeline run
+CREATE TABLE IF NOT EXISTS RECON.RUN_LOG (
+  RUN_ID VARCHAR(40), STEP VARCHAR(100), STARTED_TS TIMESTAMP, FINISHED_TS TIMESTAMP,
+  DURATION_MS DECIMAL(18,0), ROW_COUNT DECIMAL(18,0)
+);
+
+-- Agent may only INSERT here, with STATUS='PROPOSED'. A human approves; the backend executes.
+CREATE TABLE IF NOT EXISTS AUDIT.PROPOSED_ACTIONS (
+  ACTION_ID     VARCHAR(40),
+  CREATED_TS    TIMESTAMP,
+  CREATED_BY    VARCHAR(100),
+  ACTION_TYPE   VARCHAR(40),
+  TARGET_REF    VARCHAR(100),
+  RATIONALE     VARCHAR(2000),
+  EVIDENCE_SQL  VARCHAR(20000),
+  STATUS        VARCHAR(20),
+  DECIDED_BY    VARCHAR(100),
+  DECIDED_TS    TIMESTAMP
+);
+
+-- Every executed action: who, when, exact SQL, before/after counts
+CREATE TABLE IF NOT EXISTS AUDIT.ACTION_LOG (
+  LOG_ID        VARCHAR(40),
+  ACTION_ID     VARCHAR(40),
+  EXECUTED_BY   VARCHAR(100),
+  EXECUTED_TS   TIMESTAMP,
+  EXECUTED_SQL  VARCHAR(20000),
+  BEFORE_JSON   VARCHAR(20000),
+  AFTER_JSON    VARCHAR(20000),
+  OUTCOME       VARCHAR(20)
+);
