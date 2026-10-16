@@ -1,0 +1,27 @@
+# credentials: only via env vars (EXA_DSN, EXA_USER, EXA_PASSWORD), never committed
+.env
+.env.*
+!.env.example
+*.pem
+
+# local tooling
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# third-party reference clones (pinned in import/repos.lock.jsonl, not vendored)
+vendor_refs/
+
+# downloaded reference docs (link instead of redistributing)
+refs/
+data_ext/
+
+# generated synthetic data (re-create with generator/generate.py)
+data/
+*.parquet
+*.csv
+!reports/timings.csv
+
+# runtime logs (MCP server stderr, UI server)
+logs/
