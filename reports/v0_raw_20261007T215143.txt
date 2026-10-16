@@ -1,0 +1,39 @@
+### python -c "import pyexasol; print(pyexasol.__version__)"
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import pyexasol; print(pyexasol.__version__)
+    ^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'pyexasol'
+exit=1
+
+### python verify/v0_connect.py
+Traceback (most recent call last):
+  File "C:\Lang\exasol national\tatguard\verify\v0_connect.py", line 3, in <module>
+    import os, pyexasol
+ModuleNotFoundError: No module named 'pyexasol'
+exit=1
+
+### env
+EXA_DSN=UNSET
+EXA_USER=UNSET
+EXA_PASSWORD=UNSET
+
+### test -f LICENSE && head -3 LICENSE
+MIT License
+
+Copyright (c) 2026 TAT Guard contributors
+exit=0
+
+### git remote -v
+exit=0 (lines: 0)
+
+### git rev-parse HEAD
+fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] -- [<file>...]'
+HEAD
+
+### python nonhalluc/claim_scan.py README.md
+
+0 unsourced line(s)
+exit=0
