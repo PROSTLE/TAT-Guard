@@ -1,0 +1,89 @@
+# TAT Guard synthetic data generator: every tunable lives here.
+# Every value is a DESIGN choice (ours) or an ASSUMPTION (a guess about the real world). None of them is a FACT.
+# Regulatory constants (TAT days, Rs/day) are NOT here: they are read from facts.yaml (RBI-TAT-*).
+# All names, codes and formats below are SYNTHETIC stand-ins. Real NPCI/switch/CBS layouts are not public.
+
+generator_version: "1.0.0"          # DESIGN: bump when output semantics change
+chunk_rows: 1000000                 # DESIGN: fixed so output bytes depend only on (seed, rows, config)
+
+calendar:
+  start_date: "2026-10-01"          # DESIGN: first transaction day (T)
+  days: 7                           # DESIGN: default window; override with --days
+  as_of_extra_hours: 6              # DESIGN: recon runs this many hours after the last day ends
+  hour_weights: [2, 1, 1, 1, 1, 2, 4, 6, 8, 9, 10, 10, 10, 9, 9, 9, 9, 10, 11, 12, 12, 10, 7, 4]   # ASSUMPTION: intraday shape
+
+ids:
+  bank_code: "TGB"                  # DESIGN: our (remitter) bank, synthetic
+  txn_id_prefix: "TGU"              # DESIGN: UPI_TXN_ID = prefix + 16 hex (synthetic)
+  rrn_digits: 12                    # DESIGN: our synthetic RRN width (real width per bank = VERIFY)
+  counterparty_banks: 25            # DESIGN: synthetic beneficiary banks BNK01..BNKnn
+  counterparty_zipf_a: 1.1          # ASSUMPTION: a few banks receive most traffic
+  customers: 2000000                # DESIGN: synthetic masked accounts in the pool
+  merchants: 200000                 # DESIGN: synthetic merchant ids
+
+txn:
+  type_mix: {P2P: 0.62, P2M: 0.38}  # ASSUMPTION: P2P vs P2M share (illustrative)
+  amount_lognormal:                 # ASSUMPTION: amounts in rupees ~ lognormal(mu, sigma), stored as integer paise
+    P2P: {mu: 6.4, sigma: 1.3}
+    P2M: {mu: 5.3, sigma: 1.2}
+  round_amounts:                    # ASSUMPTION: many payments are round rupee values -> same-amount collisions,
+    share: 0.25                     #   which makes fuzzy matching (pass 4) genuinely ambiguous
+    rupees: [10, 20, 50, 100, 200, 500, 1000, 2000]
+  amount_min_paise: 100             # DESIGN
+  amount_max_paise: 10000000        # DESIGN: clip (Rs 1 lakh); not a statement about real UPI limits
+  channels: ["APP", "WEB", "QR", "INTENT"]   # DESIGN: synthetic channel labels
+  channel_weights: [0.55, 0.05, 0.25, 0.15]  # ASSUMPTION
+
+outcomes:                           # ASSUMPTION: probability per base transaction; the remainder is clean SUCCESS
+  BUSINESS_DECLINE: 0.06            # customer-side decline (no money moves). Illustrative only.
+  DEBIT_NO_CREDIT: 0.0010           # CBS debited, NPCI FAILED -> reversal + TAT clock
+  NPCI_SUCCESS_NO_CBS: 0.0003       # NPCI SUCCESS, no CBS debit (bank-side loss)
+  AMOUNT_MISMATCH: 0.0003           # CBS amount differs from switch/NPCI
+  DUPLICATE_POSTING: 0.0003         # CBS debited twice
+  NARRATION_ONLY: 0.0030            # difficulty: reference only inside a messy narration (should still MATCH)
+  NARRATION_NOREF: 0.0006           # difficulty (DESIGN extension): no reference at all -> fuzzy pass 4
+  SWITCH_ID_MISSING: 0.0020         # difficulty (DESIGN extension): switch row lacks UPI_TXN_ID -> RRN pass 2
+
+responses:                          # DESIGN: synthetic response codes (NOT real NPCI codes)
+  success: "00"
+  business_decline: ["BD01", "BD02", "BD03", "BD04"]
+  technical_decline: ["TD01", "TD02", "TD03"]
+  dnc_switch_status: ["FAILED", "TIMEOUT", "PENDING"]   # switch view of a debit-no-credit
+  dnc_switch_status_weights: [0.5, 0.3, 0.2]            # ASSUMPTION
+
+timing:
+  npci_ts_jitter_s: 3               # ASSUMPTION: NPCI timestamp vs switch timestamp
+  cbs_post_lag_s: 120               # ASSUMPTION: CBS posting lag after txn
+  duplicate_extra_lag_s: 900        # ASSUMPTION: second (duplicate) posting lag
+  amount_mismatch_deltas_paise: [100, 1, 1000, 50]      # ASSUMPTION: Rs 1 off is the commonest
+
+settlement:
+  cycles_per_day: 4                 # ASSUMPTION: real NPCI cycle schedule NOT verified; synthetic
+  expected_lag_minutes: 90          # DESIGN: file expected this long after cycle close
+  arrival_jitter_minutes: 30        # ASSUMPTION: on-time files arrive within this window
+  late_files:                       # DESIGN: injected LATE_FILE root-cause scenario(s)
+    - {day_index: -1, cycle: 2, delay_minutes: 1800}   # last day, 3rd cycle, 30 h late -> not arrived at as_of
+
+reversal:                           # ASSUMPTION: days from T to R for DEBIT_NO_CREDIT; "NEVER" = still open at as_of
+  P2P: {lag_days: [0, 1, 2, 3, 5, 8, NEVER], weights: [0.35, 0.35, 0.12, 0.06, 0.04, 0.03, 0.05]}
+  P2M: {lag_days: [1, 3, 5, 6, 7, 10, NEVER], weights: [0.20, 0.30, 0.25, 0.10, 0.05, 0.03, 0.07]}
+  post_lag_s: 3600                  # ASSUMPTION: reversal posts within this many seconds of day R start
+
+compensation:                       # ASSUMPTION: synthetic misses so the suo-moto check has something to find
+  recorded_rate: 0.70               # share of owed cases where any compensation was posted
+  underpaid_rate: 0.15              # of those recorded, share paid one day short
+
+narration:                          # DESIGN: synthetic narration templates. Fields: {rrn} {payee} {pbank} {date} {mob} {txnid} {amt}
+  clean:
+    - "UPI/DR/{rrn}/{payee}/{pbank}"
+    - "UPI/DR/{rrn}/{payee}/{pbank}/{txnid}"
+  messy:                            # contain decoy digit runs (10-digit mobile, 8-digit date)
+    - "UPI-{payee} {mob} REF NO {rrn} {date}"
+    - "{date} UPI*{pbank}*{payee}*RRN:{rrn}*M{mob}"
+    - "TO {payee} VIA UPI {mob}/{rrn}/{pbank}"
+    - "upi pmt {payee} ref{rrn} dt{date}"
+  noref:
+    - "UPI PAYMENT TO {payee} {pbank} {date}"
+    - "UPI TRF {payee} {pbank}"
+  reversal: "UPI/REV/{rrn}/{payee}/{pbank}"
+  compensation: "TAT COMP/{rrn}/{amt}"
