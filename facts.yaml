@@ -1,0 +1,183 @@
+# TAT Guard fact registry. Seeded verbatim from 04_NON_HALLUCINATOR.md §2 (gathered and checked 7 Oct 2026).
+# status: verified = text was read at the URL. status: VERIFY = needs a check before use.
+# Rule: no fact ID here => the claim may not appear in code, README, deck or video.
+facts:
+  - id: EVT-PLATFORM
+    claim: "Exasol Personal must be used as the project's data platform"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-DATA
+    claim: "Public or synthetic data only (no proprietary/employer data)"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-TEAM
+    claim: "Teams of 1-3 members"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-REG
+    value: "2026-10-15T23:59+05:30"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-SUBMIT
+    value: "2026-10-25T23:59+05:30"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-FINAL
+    value: "2026-10-30T18:00+05:30"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-DEMO
+    value: "2026-11-04T10:00+05:30"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-DELIVERABLES
+    claim: "Problem statement; public GitHub repo (Apache 2.0 or MIT); pitch deck PDF/PPT; demo video max 3 min; README; deployment/run guide; licence file"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-JUDGE1
+    value: {innovation_impact: 25, exasol_use: 25, technical: 20, design_ux: 15, docs: 10, oss: 5}
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-JUDGE2
+    value: {live_demo: 40, qa_depth: 30, applicability: 20, communication: 10}
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-DEMO-RULE
+    claim: "Teams that bring slides without a demo will not be scored"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-LOCAL-OK
+    claim: "Local Exasol Personal installs (macOS, Windows, Linux) are part of the official starter kit; no cloud account needed"
+    quote: "The starter kit covers macOS, Windows and Linux for local installs, plus deployment to your own AWS or Azure account when you want more scale or a shared instance."
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+    note: "re-fetched 2026-10-08 (via WebFetch extraction); resolves the Day-1 docker-db question: use the official launcher's local preset"
+  - id: EVT-PROBLEM-FORMAT
+    claim: "Problem statement template"
+    quote: "[Who] can't [do what] because [why today's approach fails]. If this worked, [what changes for them]."
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EVT-ORIGINAL
+    claim: "Original work, created during the challenge window"
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+  - id: EXA-PERSONAL-LAUNCHER
+    claim: "Exasol Personal launcher v2.3.0 supports local deployments on Windows amd64 via Podman's default machine"
+    quote: "Added support for \"local\" deployments on Windows amd64. The database runs through host Podman inside Podman's default machine."
+    url: https://github.com/exasol/exasol-personal/blob/main/CHANGELOG.md
+    status: verified
+    note: "read from CHANGELOG.md in clone @ f5e4c01; release v2.3.0 published 2026-09-21"
+  - id: EXA-PERSONAL-DEFAULT-CREDS
+    claim: "Local deployment default credentials are sys / exasol; port preferred 8563"
+    url: https://exasol.github.io/exasol-personal/2.3/local-deployment/
+    status: verified
+    note: "confirmed 2026-10-11: `exasol info` showed 127.0.0.1:8563 user sys; sys/exasol login worked; also quoted in vendor_refs/exasol-personal user-docs local-deployment.md"
+  - id: EVT-PRIZES
+    value: {first: 75000, second: 40000, third: 20000, biggest_impact: 15000, currency: INR}
+    url: https://www.exasol.com/events/exathon-india-2026/
+    status: verified
+
+  # RBI quotes below were extracted verbatim from the raw page fetched 2026-10-08 with curl
+  # (sha256 11edc1fc33cdfefca693677ac0aff8c42aff60ed1fd3b769964fcfd948d61af1, saved to refs/RBI-TAT.html, not redistributed).
+  - id: RBI-TAT-REF
+    claim: "RBI/2019-20/67, DPSS.CO.PD No.629/02.01.014/2019-20, dated 20 Sep 2019, effective 15 Oct 2019"
+    quote: "This directive is issued under Section 10(2) read with Section 18 of the Payment and Settlement Systems Act, 2007 (Act 51 of 2007) and shall come into effect from October 15, 2019."
+    url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
+    status: verified
+  - id: RBI-TAT-UPI-P2P
+    claim: "UPI fund transfer, beneficiary not credited: auto-reversal within T+1"
+    quote: "Account debited but the beneficiary account is not credited (transfer of funds). If unable to credit the beneficiary account, auto reversal (R) by the Beneficiary bank latest on T + 1 day. ₹100/- per day if delay is beyond T + 1 day."
+    value: 1
+    url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
+    status: verified
+  - id: RBI-TAT-UPI-P2M
+    claim: "UPI merchant payment, confirmation not received: auto-reversal within T+5"
+    quote: "Account debited but transaction confirmation not received at merchant location (payment to merchant). Auto-reversal within T + 5 days. ₹100/- per day if delay is beyond T + 5 days."
+    value: 5
+    url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
+    status: verified
+  - id: RBI-TAT-IMPS
+    claim: "IMPS: auto-reversal by beneficiary bank latest on T+1"
+    quote: "Account debited but the beneficiary account is not credited. If unable to credit to beneficiary account, auto reversal (R) by the Beneficiary bank latest on T + 1 day. ₹100/- per day if delay is beyond T + 1 day."
+    value: 1
+    url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
+    status: verified
+  - id: RBI-TAT-COMP
+    claim: "Compensation Rs 100 per day of delay beyond TAT"
+    quote: "₹100/- per day if delay is beyond T + 1 day."
+    value: 100
+    url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
+    status: verified
+  - id: RBI-TAT-SUOMOTO
+    claim: "Financial compensation shall be effected suo moto, without waiting for complaint"
+    quote: "Wherever financial compensation is involved, the same shall be effected to the customer’s account suo moto, without waiting for a complaint or claim from the customer."
+    url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
+    status: verified
+  - id: RBI-TAT-DAYCOUNT
+    claim: "T is the transaction day as a calendar date; TAT days are calendar days"
+    quote: "T is the day of transaction and refers to the calendar date."
+    url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
+    status: verified
+    note: "resolved 2026-10-08 (was VERIFY)"
+  - id: RBI-TAT-R-DEF
+    claim: "R (reversal day) = day the reversal is concluded and funds reach the issuer/originator"
+    quote: "R is the day on which the reversal is concluded and the funds are received by the issuer / originator."
+    url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
+    status: verified
+  - id: RBI-TAT-STILL-IN-FORCE
+    claim: "Circular not superseded as of submission date"
+    status: VERIFY
+    evidence: >
+      Checked 2026-10-08. (1) The circular page shows no repeal or withdrawal notice. (2) The rbi.org.in
+      Master Directions list for "Payment and Settlement System" (did=344) has no direction on TAT for
+      failed transactions. (3) RBI consolidated about 9,000 circulars into Master Directions in Nov 2025
+      (secondary: https://www.newsonair.gov.in/rbi-repeals-9000-circulars-consolidates-rules-into-244-master-directions-to-ease-compliance/).
+      The repeal annexes were NOT checked for DPSS.CO.PD No.629. Status stays VERIFY until they are.
+
+  - id: UPI-SEP26
+    value: {monthly_txns_bn: 24.07, value_lakh_crore: 29.37, daily_avg_txns: 802000000, daily_avg_value_crore: 97913, yoy_volume_pct: 23, yoy_value_pct: 18}
+    url: https://startuptalky.com/india-upi-transactions-september-2026/
+    status: verified
+    note: "secondary source; cross-check against NPCI's own statistics page before final deck"
+  - id: UPI-TD-BANKS-FY25
+    claim: "Mar FY25 technical decline: SBI 0.9%, ICICI 0.13%, Jio Payments Bank 7.23%, Bandhan 2.48%, HDFC 0.02%, Axis 0.03%, BoB 0.03%; NPCI informally asked banks to keep TD below 1%"
+    url: https://www.outlookbusiness.com/ampstories/news/upi-transaction-failures-how-indias-banks-performed-in-fy25
+    status: verified
+    note: "secondary source"
+  - id: UPI-FAIL-MIX
+    claim: "Business declines ~81.7%, technical declines ~18.3% of UPI failures (2022-23 analysis)"
+    url: https://finbox.substack.com/p/the-chink-in-the-upi-armour
+    status: verified
+    note: "older data, say so"
+  - id: NPCI-STATUSCHECK
+    claim: "After Apr 2025 outages, PSPs: first status check after 90 s, max 3 per txn in 2 hours; use settlement files / UDIR for final status"
+    url: https://www.medianama.com/2025/04/223-npci-new-guidelines-upi-outage/
+    status: verified
+    note: "secondary; primary NPCI circular = VERIFY"
+  - id: NPCI-OC213
+    claim: "Auto acceptance/rejection of UPI chargebacks based on beneficiary TCC/RET, effective 15 Feb 2025"
+    url: https://npci.org.in/PDF/npci/upi/circular/2025/UPI-OC-No-213-FY-2024-25-Auto-Acceptance-Rejection-of-Chargeback.pdf
+    status: verified
+  - id: RBIOS-2425
+    claim: "13.34 lakh complaints in 2024-25, up 13.55% from 11.75 lakh"
+    url: https://currentaffairs.adda247.com/reserve-bank-integrated-ombudsman-scheme-rb-ios-2024-25/
+    status: verified
+    note: "secondary; primary RBI report = VERIFY"
+  - id: OUTAGE-2026-04-01
+    claim: "1 Apr 2026: extended SBI maintenance to 12:30; 500+ Downdetector reports for SBI"
+    url: https://ianslive.in/upi-outage-users-report-failed-transactions-across-cities--20260401151248
+    status: verified
+
+  - id: EXA-261-AI
+    claim: "Exasol 2026.1 lists native AI functions in SQL (classification, entailment, information extraction, translation), MCP server, Agent Skills"
+    url: https://www.exasol.com/blog/exasol-release-26-1/
+    status: verified
+    note: "exact function names/syntax = VERIFY in docs"
+  - id: EXA-PERSONAL
+    claim: "Exasol Personal: free, single-user, full enterprise features incl. Python/R/Java/Lua UDFs, virtual schemas, AI Lab, MCP server; clusters on AWS (Azure, Exoscale added in 2026.1)"
+    url: https://www.exasol.com/blog/introducing-exasol-personal/
+    status: verified
+  - id: EXA-STRATEGY-2026
+    claim: "Exasol strategic focus 2026: data sovereignty and agentic AI; regulated sectors and public sector"
+    url: https://app.boersengefluester.de/en/newswire/DE000A0LR9G9/exasol-ag/first-half-of-2026-marked-by-cautious-investment-by-existing-customers-strategic-focus-on-data-sovereignty-and-ai-drives-momentum-in-new-customer-business-2380916
+    status: verified
