@@ -1,0 +1,36 @@
+# TAT Guard reconciliation settings: what a bank would tune per source system. All values are DESIGN choices.
+# The matcher reads ONLY this file, the RAW.* tables and facts.yaml (for TAT rules). It never reads the
+# generator config or the ground-truth table.
+
+matching:
+  pass2_window_s: 30             # DESIGN: RRN + amount match allowed this much |switch ts - NPCI ts|
+  pass4_window_s: 900            # DESIGN: CBS posting may lag the switch txn by up to this (fuzzy pass)
+  pass4_threshold: 0.75          # DESIGN: fuzzy score needed to auto-match; below -> human queue
+  pass4_weights: {amount: 0.5, bank_token: 0.3, time: 0.2}   # DESIGN: score = sum of weighted signals
+  # reference extraction from CBS narration (Python UDF). Our synthetic narrations carry a 12-digit RRN.
+  # Real formats vary per bank: VERIFY per bank before production use.
+  ref_pattern: '(?<!\d)(\d{12})(?!\d)'
+
+narration_kinds:                 # DESIGN: how CBS credit narrations are recognised (first match wins, by priority)
+  - {kind: REVERSAL, pattern: '^UPI/REV/', priority: 1}
+  - {kind: COMPENSATION, pattern: '^TAT COMP/', priority: 2}
+
+response_codes:                  # DESIGN: response-code categories of the (synthetic) switch
+  BUSINESS_DECLINE: ["BD01", "BD02", "BD03", "BD04"]
+  TECHNICAL_DECLINE: ["TD01", "TD02", "TD03"]
+  SUCCESS: ["00"]
+
+rail: UPI                        # DESIGN: all synthetic data is UPI; IMPS rules exist in facts.yaml but no IMPS data
+
+actions:                         # DESIGN: what an APPROVED action does. On this synthetic data, "executing" an action
+                                 # means SIMULATING the bank's CBS posting: one credit row in RAW.CBS_LEDGER, then a recon re-run.
+                                 # agent/actions.py checks at startup that these narrations are typed by narration_kinds above
+                                 # and that matching.ref_pattern extracts the RRN from them.
+  narration:
+    POST_REVERSAL: "UPI/REV/{rrn}/TATGUARD"
+    PAY_COMPENSATION: "TAT COMP/{rrn}/{rupees}"
+  recon_after_execute: true      # DESIGN: re-run the full recon so queue and exposure reflect the posting
+
+rootcause:                       # DESIGN: thresholds for the deterministic root-cause playbook (agent/playbook.py)
+  file_grace_minutes: 60         # a settlement file counts as late only this long after its expected time
+  top_windows: 3                 # how many spike windows to report
