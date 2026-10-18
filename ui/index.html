@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TAT Guard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/dashboard" aria-label="TAT Guard home">
+    <span class="brand-mark"><i data-lucide="shield-check"></i></span>
+    <span class="brand-text"><b>TAT Guard</b><small>Every stuck rupee, on a clock</small></span>
+  </a>
+  <nav class="nav" id="nav">
+    <a href="#/dashboard" data-page="dashboard"><i data-lucide="layout-dashboard"></i><span>Dashboard</span></a>
+    <a href="#/queue" data-page="queue"><i data-lucide="list-ordered"></i><span>Work Queue</span></a>
+    <a href="#/transactions" data-page="transactions"><i data-lucide="arrow-left-right"></i><span>Transactions</span></a>
+    <a href="#/assistant" data-page="assistant"><i data-lucide="message-square-text"></i><span>Assistant</span></a>
+    <a href="#/actions" data-page="actions"><i data-lucide="clipboard-check"></i><span>Actions</span><em class="count" id="nav-pending" hidden></em></a>
+    <a href="#/audit" data-page="audit"><i data-lucide="scroll-text"></i><span>Audit Log</span></a>
+    <a href="#/sources" data-page="sources"><i data-lucide="database"></i><span>Data Sources</span></a>
+    <a href="#/reports" data-page="reports"><i data-lucide="file-chart-column"></i><span>Reports</span></a>
+  </nav>
+  <div class="topbar-right">
+    <div class="conn" id="conn" title="Database connection"><i data-lucide="server"></i><span>Connecting…</span></div>
+    <a class="icon-btn bell" href="#/actions" id="bell" aria-label="Pending approvals"><i data-lucide="bell"></i><em class="count" id="bell-count" hidden></em></a>
+    <div class="who">
+      <button class="who-btn" id="who-btn" type="button" aria-haspopup="dialog"><span class="avatar" id="who-avatar"><i data-lucide="user-round"></i></span><span class="who-text"><b id="who-name">Set your name</b><small>Approver</small></span><i data-lucide="chevron-down"></i></button>
+      <div class="popover" id="who-pop" hidden>
+        <label for="who-input">Your name, as written to the audit log</label>
+        <input id="who-input" maxlength="80" placeholder="e.g. Priya, Operations" autocomplete="name">
+        <div class="row end"><button class="btn primary sm" id="who-save" type="button">Save</button></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="contextbar">
+  <div class="notice"><i data-lucide="info"></i><b>Synthetic data.</b><span>File layouts are stand-ins, not real NPCI, switch or CBS formats.</span></div>
+  <div class="ctx-right">
+    <div class="ctx-chip" id="ctx-window"><i data-lucide="calendar-range"></i><span>…</span></div>
+    <div class="ctx-chip" id="ctx-run"><i data-lucide="clock"></i><span>…</span></div>
+    <button class="btn ghost sm" id="refresh" type="button"><i data-lucide="refresh-cw"></i><span>Refresh</span></button>
+  </div>
+</div>
+
+<main id="app" class="page" tabindex="-1"></main>
+
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div><p class="eyebrow">Transaction</p><h2 id="drawer-title">…</h2></div>
+    <button class="icon-btn" id="drawer-close" type="button" aria-label="Close"><i data-lucide="x"></i></button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+<div class="scrim" id="scrim" hidden></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="/static/vendor/lucide-1.47.0/lucide.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
