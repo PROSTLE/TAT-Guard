@@ -313,3 +313,197 @@
       if (await propose(b.dataset.propose, [b.dataset.ref])) route(); else b.disabled = false;
     }));
   }
+
+  // ------------------------------------------------------------------ page: dashboard
+  PAGES.dashboard = async (app) => {
+    const [o, t, top, act] = await Promise.all([call("/api/overview"), call("/api/trend"), call("/api/queue?sort=rank&size=10"), call("/api/activity?n=6")]);
+    setContext(o);
+    const k = o.kpi, v = o.volume;
+    const kpis = [
+      { tone: "brand", icon: "indian-rupee", label: "Owed tomorrow if unreversed", value: fmt.rs(k.OWED_TOMORROW_RS),
+        sub: `+${fmt.rs(k.NEW_ACCRUAL_RS)} new by tomorrow · ${fmt.n(k.OPEN_CASES)} open cases`, spark: spark(t.points.map(p => p.OPEN_RS), "#0F6B5C"), go: ["queue", { sort: "owed" }] },
+      { tone: "danger", icon: "clock-alert", label: "Overdue", value: fmt.n(k.OVERDUE_N), sub: `${fmt.rs(k.OVERDUE_RS)} accrued past the deadline`, go: ["queue", { state: "OVERDUE" }] },
+      { tone: "warn", icon: "triangle-alert", label: "At risk by tomorrow", value: fmt.n(k.AT_RISK_N), sub: `${fmt.rs(k.AT_RISK_RS)} owed tomorrow if not reversed`, go: ["queue", { state: "AT_RISK" }] },
+      { tone: "info", icon: "list-checks", label: "Exceptions", value: fmt.n(v.EXCEPTIONS), sub: `${fmt.pct(v.EXCEPTION_PCT)} of ${fmt.n(v.TXNS)} transactions`, spark: spark(o.daily.map(d => d.N), "#1D4F91"), go: ["queue", {}] },
+      { tone: "violet", icon: "hand-coins", label: "Compensation due", value: fmt.rs(k.COMP_DUE_RS), sub: `${fmt.n(k.COMP_DUE_N)} reversed cases missing or underpaid`, go: ["queue", { state: "COMPENSATION_DUE" }] },
+    ];
+    const tatBlock = o.tat.map(tt => {
+      const tot = Math.max(Number(tt.TOTAL), 1);
+      const seg = (n, cls) => `<span class="${cls}" style="width:${100 * Number(n) / tot}%"></span>`;
+      return `<div class="tat-type"><h4><span>${esc(tt.TXN_TYPE)} <span class="muted" style="font-weight:500">(T+${fmt.n(tt.TAT_DAYS)} days)</span></span><span>${fmt.n(tt.TOTAL)}</span></h4>
+        <div class="stack">${seg(tt.OVERDUE, "bg-danger")}${seg(tt.AT_RISK, "bg-warn")}${seg(tt.WITHIN_TAT, "bg-info")}${seg(tt.REVERSED, "bg-neutral")}</div>
+        <div class="tat-nums">
+          <button data-go-state="OVERDUE"><b class="c-danger">${fmt.n(tt.OVERDUE)}</b><small>Overdue</small></button>
+          <button data-go-state="AT_RISK"><b class="c-warn">${fmt.n(tt.AT_RISK)}</b><small>At risk</small></button>
+          <button data-go-state="WITHIN_TAT"><b class="c-info">${fmt.n(tt.WITHIN_TAT)}</b><small>Within TAT</small></button>
+          <button data-go-state="COMPENSATION_DUE" title="Opens the ${fmt.n(tt.COMP_DUE)} reversed cases whose compensation is missing or short"><b>${fmt.n(tt.REVERSED)}</b><small>Reversed · ${fmt.n(tt.COMP_DUE)} comp. due</small></button>
+        </div></div>`;
+    }).join("");
+    const rates = [...new Set(o.rules.map(r => String(r.RS_PER_DAY)))];   // one rate today; show each if rules ever differ
+    const rulesLine = o.rules.map(r => `${esc(r.TXN_TYPE)} T+${fmt.n(r.TAT_DAYS)}${rates.length > 1 ? ` at ${fmt.rs(r.RS_PER_DAY)}/day` : ""}`).join(" · ")
+      + (rates.length === 1 ? ` · ${fmt.rs(rates[0])}/day beyond` : "") + (o.rules.length ? ` (${esc(o.rules.map(r => r.FACT_ID).join(", "))})` : "");
+    const acts = act.items.length ? act.items.map(activityItem).join("") : `<div class="empty">No proposals or approvals yet.</div>`;
+    app.innerHTML = head("Dashboard", "Reconcile UPI transactions, track TAT exposure, and resolve the costliest exceptions first.") + `
+      <div class="kpis">${kpis.map((c, i) => `<button class="kpi tone-${c.tone}" data-kpi="${i}" type="button">
+          <div class="kpi-top"><span class="kpi-icon"><i data-lucide="${c.icon}"></i></span><span class="kpi-label">${esc(c.label)}</span></div>
+          <div class="kpi-value">${c.value}</div><div class="kpi-sub">${c.sub}</div>${c.spark || ""}</button>`).join("")}</div>
+      <div class="grid">
+        <div class="span-5">${card("Compensation liability by day", "chart-line", trendChart(t.points) + `<div class="legend" style="margin-top:8px">
+            <span><i class="sw" style="background:#0F6B5C"></i>Owed on cases still open</span><span><i class="sw" style="background:#98A2B3"></i>Accrued on all cases</span>
+            <span><i class="sw dash"></i>* tomorrow, projected</span></div>`, "", `<span>Penalty days = calendar days beyond T+TAT, per case, up to its reversal</span><span class="timing">${t.ms} ms</span>`)}</div>
+        <div class="span-4">${card("Exceptions by break type", "chart-pie", donut(o.classes, v.EXCEPTIONS), "", `<span>Select a type to open it in the work queue</span><span class="timing">${o.ms.classes} ms</span>`)}</div>
+        <div class="span-3">${card("TAT status by type", "timer", tatBlock || `<div class="empty">No debit-no-credit cases.</div>`, `<a class="btn ghost sm" href="#/queue?class=DEBIT_NO_CREDIT">View<i data-lucide="arrow-right"></i></a>`, `<span>${rulesLine}</span>`)}</div>
+        <div class="span-8"><section class="card">
+          <div class="card-head"><h3><span class="hicon"><i data-lucide="list-ordered"></i></span>Highest exposure first</h3><a class="btn sm" href="#/queue">Open work queue<i data-lucide="arrow-right"></i></a></div>
+          <div class="table-wrap" style="margin-top:12px"><table class="data">${queueHeader(false)}<tbody>${top.rows.slice(0, 6).map(r => queueRow(r)).join("")}</tbody></table></div>
+          <div class="card-foot"><span>Ranked by rupees owed tomorrow, then amount · ${fmt.n(top.total)} rows in the queue</span><span class="timing">${top.ms} ms</span></div></section></div>
+        <div class="span-4" style="display:grid;gap:16px;align-content:start">
+          ${card("Ask the assistant", "message-square-text", `<div class="suggest">${state.meta.suggestions.map(s => `<button type="button" data-ask="${esc(s)}"><span>${esc(s)}</span><i data-lucide="arrow-right"></i></button>`).join("")}</div>
+            <form class="askbox" id="dash-ask"><input name="q" placeholder="Ask about the data…" maxlength="500" aria-label="Question"><button class="btn primary" type="submit" aria-label="Ask"><i data-lucide="send"></i></button></form>`, `<span class="muted" style="font-size:12px">Read-only through the Exasol MCP server</span>`)}
+          ${card("Recent activity", "activity", `<div class="activity">${acts}</div>`, `<a class="btn ghost sm" href="#/audit">Audit log<i data-lucide="arrow-right"></i></a>`)}
+        </div>
+      </div>`;
+    $$("[data-kpi]", app).forEach(b => b.addEventListener("click", () => go(...kpis[Number(b.dataset.kpi)].go)));
+    $$("[data-class]", app).forEach(b => b.addEventListener("click", () => go("queue", { class: b.dataset.class })));
+    $$("[data-go-state]", app).forEach(b => b.addEventListener("click", () => go("queue", { state: b.dataset.goState, class: "DEBIT_NO_CREDIT" })));
+    $$("[data-ask]", app).forEach(b => b.addEventListener("click", () => go("assistant", { ask: b.dataset.ask })));
+    $("#dash-ask").addEventListener("submit", e => { e.preventDefault(); const v = e.target.q.value.trim(); if (v) go("assistant", { ask: v }); });
+    bindRowClicks(app);
+    bindTrend(t.points);
+  };
+
+  function activityItem(a) {
+    const kind = { PROPOSED: ["Proposed", "file-plus", "warn"], APPROVED: ["Approved", "check", "info"], REJECTED: ["Rejected", "x", "neutral"],
+      EXECUTED: ["Executed", "circle-check", "brand"], LOGGED: ["Logged for operations", "clipboard-check", "brand"], FAILED: ["Failed", "circle-x", "danger"] }[a.KIND] || [title(a.KIND), "info", "neutral"];
+    const tone = { warn: "var(--warn-soft);color:var(--warn)", info: "var(--info-soft);color:var(--info)", neutral: "var(--neutral-soft);color:var(--muted)",
+      brand: "var(--brand-soft);color:var(--brand)", danger: "var(--danger-soft);color:var(--danger)" }[kind[2]];
+    return `<div class="act"><span class="ic" style="background:${tone}"><i data-lucide="${kind[1]}"></i></span>
+      <div><b>${esc(kind[0])}: ${esc(actionMeta(a.ACTION_TYPE).label)}</b><p class="wrap">${esc(a.TARGET_REF)} · ${esc(a.WHO || "")}</p></div>
+      <time title="${esc(a.TS)}">${fmt.ago(a.TS)}</time></div>`;
+  }
+
+  // ------------------------------------------------------------------ page: work queue
+  PAGES.queue = async (app, p) => {
+    const params = { state: p.state || "", class: p.class || "", q: p.q || "", sort: p.sort || state.meta.queue_sorts[0], page: p.page || "1", size: p.size || String(state.meta.default_page_size) };
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+    const r = await call("/api/queue?" + qs);
+    state.selected = new Set([...state.selected].filter(id => r.rows.some(x => x.EXC_ID === id)));
+    const all = Object.values(r.tabs).reduce((a, b) => a + Number(b), 0);
+    const tabs = [["", "All", all], ...state.meta.tat_states.map(s => [s, (STATE_META[s] || { label: title(s) }).label, r.tabs[s] || 0])];
+    const pages = Math.max(1, Math.ceil(Number(r.total) / r.size));
+    const csvQs = new URLSearchParams(Object.entries({ state: params.state, class: params.class, q: params.q }).filter(([, v]) => v)).toString();
+    app.innerHTML = head("Work Queue", "Every open exception, plus reversed cases whose compensation is missing. Ranked by rupees owed tomorrow.",
+      `<a class="btn" href="/api/queue.csv${csvQs ? "?" + csvQs : ""}" download><i data-lucide="download"></i>Export CSV</a>`) + `
+      <section class="card">
+        <div class="tabs">${tabs.map(([s, l, n]) => `<button class="tab ${params.state === s ? "active" : ""}" data-tab="${s}" type="button">${esc(l)} <em>${fmt.n(n)}</em></button>`).join("")}</div>
+        <form class="toolbar" id="qf">
+          <label class="search"><i data-lucide="search"></i><input name="q" value="${esc(params.q)}" placeholder="Search by UPI id, RRN or exception id" maxlength="40"></label>
+          <select name="class" aria-label="Break type"><option value="">All break types</option>${r.classes.map(c => `<option value="${esc(c)}" ${c === params.class ? "selected" : ""}>${esc(classMeta(c).label)}</option>`).join("")}</select>
+          <select name="sort" aria-label="Sort">${state.meta.queue_sorts.map(v => `<option value="${esc(v)}" ${v === params.sort ? "selected" : ""}>Sort: ${esc(SORT_LABEL[v] || title(v).toLowerCase())}</option>`).join("")}</select>
+          <button class="btn" type="submit"><i data-lucide="filter"></i>Apply</button>
+          ${params.q || params.class ? `<button class="btn ghost" type="button" id="qclear">Clear</button>` : ""}
+        </form>
+        <div class="bulkbar" id="bulk" hidden></div>
+        <div class="table-wrap"><table class="data">${queueHeader(true)}<tbody>${r.rows.map(x => queueRow(x, { select: true })).join("") || `<tr><td colspan="9"><div class="empty">Nothing matches these filters.</div></td></tr>`}</tbody></table></div>
+        <div class="pager"><span>Showing ${fmt.n(r.rows.length ? (r.page - 1) * r.size + 1 : 0)}–${fmt.n((r.page - 1) * r.size + r.rows.length)} of ${fmt.n(r.total)} · <span class="timing">${r.ms} ms</span></span>
+          <div class="row"><select id="psize" aria-label="Rows per page">${sizeOptions(r.size)}</select>${pager(r.page, pages)}</div></div>
+      </section>`;
+    const set = (patch) => go("queue", { ...params, ...patch });
+    $$("[data-tab]", app).forEach(b => b.addEventListener("click", () => set({ state: b.dataset.tab, page: 1 })));
+    $("#qf").addEventListener("submit", e => { e.preventDefault(); const f = e.target; set({ q: f.q.value.trim(), class: f.class.value, sort: f.sort.value, page: 1 }); });
+    $("#qf select[name=class]").addEventListener("change", () => $("#qf").requestSubmit());
+    $("#qf select[name=sort]").addEventListener("change", () => $("#qf").requestSubmit());
+    if ($("#qclear")) $("#qclear").addEventListener("click", () => set({ q: "", class: "", page: 1 }));
+    $("#psize").addEventListener("change", e => set({ size: e.target.value, page: 1 }));
+    $$("[data-page-to]", app).forEach(b => b.addEventListener("click", () => set({ page: b.dataset.pageTo })));
+    bindRowClicks(app);
+    const syncBulk = () => {
+      const sel = $$("input[data-sel]:checked", app);
+      const byKind = {};
+      sel.forEach(c => (byKind[c.dataset.kind] = byKind[c.dataset.kind] || []).push(c.dataset.sel));
+      state.selected = new Set(sel.map(c => c.dataset.sel));
+      const bar = $("#bulk");
+      bar.hidden = !sel.length;
+      bar.innerHTML = `<b>${fmt.n(sel.length)} selected</b>` + Object.entries(byKind).map(([kind, ids]) =>
+        `<button class="btn primary sm" data-bulk="${esc(kind)}" type="button"><i data-lucide="${actionMeta(kind).icon}"></i>${esc(actionMeta(kind).cta)} for ${fmt.n(ids.length)}</button>`).join("") +
+        `<button class="btn ghost sm" id="bulk-clear" type="button">Clear selection</button>`;
+      icons(bar);
+      $$("[data-bulk]", bar).forEach(b => b.addEventListener("click", async () => { b.disabled = true; if (await propose(b.dataset.bulk, byKind[b.dataset.bulk])) { state.selected.clear(); route(); } else b.disabled = false; }));
+      if ($("#bulk-clear")) $("#bulk-clear").addEventListener("click", () => { $$("input[data-sel]", app).forEach(c => (c.checked = false)); syncBulk(); });
+    };
+    $$("input[data-sel]", app).forEach(c => c.addEventListener("change", syncBulk));
+    $("#sel-all").addEventListener("change", e => { $$("input[data-sel]:not(:disabled)", app).forEach(c => (c.checked = e.target.checked)); syncBulk(); });
+    syncBulk();
+  };
+  function pager(page, pages) {
+    const nums = new Set([1, pages, page - 1, page, page + 1].filter(n => n >= 1 && n <= pages));
+    const list = [...nums].sort((a, b) => a - b);
+    let out = `<div class="pages"><button data-page-to="${page - 1}" ${page <= 1 ? "disabled" : ""} aria-label="Previous page"><i data-lucide="chevron-left"></i></button>`;
+    list.forEach((n, i) => { if (i && n - list[i - 1] > 1) out += `<button disabled>…</button>`; out += `<button data-page-to="${n}" class="${n === page ? "cur" : ""}">${fmt.n(n)}</button>`; });
+    return out + `<button data-page-to="${page + 1}" ${page >= pages ? "disabled" : ""} aria-label="Next page"><i data-lucide="chevron-right"></i></button></div>`;
+  }
+
+  // ------------------------------------------------------------------ page: transactions
+  PAGES.transactions = async (app, p) => {
+    const params = { q: p.q || "", outcome: p.outcome || "", page: p.page || "1", size: p.size || String(state.meta.default_page_size) };
+    const r = await call("/api/transactions?" + new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString());
+    const pages = Math.max(1, Math.ceil(Number(r.total) / r.size));
+    app.innerHTML = head("Transactions", "Every UPI transaction as the reconciliation sees it: switch log, NPCI settlement and core-banking debits.") + `
+      <section class="card">
+        <div class="tabs">${[["", "All"], ["exception", "With an exception"], ["clean", "Reconciled"]].map(([v, l]) => `<button class="tab ${params.outcome === v ? "active" : ""}" data-outcome="${v}" type="button">${l}</button>`).join("")}</div>
+        <form class="toolbar" id="tf"><label class="search"><i data-lucide="search"></i><input name="q" value="${esc(params.q)}" placeholder="Search by UPI id or RRN (prefix works)" maxlength="40"></label>
+          <button class="btn" type="submit"><i data-lucide="search"></i>Search</button>${params.q ? `<button class="btn ghost" type="button" id="tclear">Clear</button>` : ""}</form>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Time</th><th>UPI transaction id</th><th>RRN</th><th>Type</th><th>Payee bank</th><th class="n">Amount</th><th>Switch</th><th>NPCI</th><th class="n">CBS debits</th><th>Result</th></tr></thead>
+          <tbody>${r.rows.map(t => `<tr class="clickable" data-open="${esc(t.UPI_TXN_ID || t.RRN)}">
+            <td>${fmt.dt(t.TXN_TIME)}</td><td class="mono">${esc(t.UPI_TXN_ID || "–")}</td><td class="mono">${esc(t.RRN)}</td><td>${esc(t.TXN_TYPE || "–")}</td><td>${esc(t.PAYEE_BANK || "–")}</td>
+            <td class="n">${fmt.rs(t.AMOUNT_RS)}</td><td>${esc(title(t.SW_STATUS) || "–")}</td><td>${t.NPCI_STATUS ? esc(title(t.NPCI_STATUS)) : `<span class="subtle">no record</span>`}</td>
+            <td class="n">${fmt.n(t.DR_CNT)}</td><td>${t.CLASS ? classTag(t.CLASS) : pill("Reconciled", "brand")}</td></tr>`).join("") || `<tr><td colspan="10"><div class="empty">No transaction matches.</div></td></tr>`}</tbody></table></div>
+        <div class="pager"><span>Showing ${fmt.n(r.rows.length ? (r.page - 1) * r.size + 1 : 0)}–${fmt.n((r.page - 1) * r.size + r.rows.length)} of ${fmt.n(r.total)} · <span class="timing">${r.ms} ms</span></span>
+          <div class="row"><select id="tsize" aria-label="Rows per page">${sizeOptions(r.size)}</select>${pager(r.page, pages)}</div></div>
+      </section>`;
+    const set = patch => go("transactions", { ...params, ...patch });
+    $$("[data-outcome]", app).forEach(b => b.addEventListener("click", () => set({ outcome: b.dataset.outcome, page: 1 })));
+    $("#tf").addEventListener("submit", e => { e.preventDefault(); set({ q: e.target.q.value.trim(), page: 1 }); });
+    if ($("#tclear")) $("#tclear").addEventListener("click", () => set({ q: "", page: 1 }));
+    $("#tsize").addEventListener("change", e => set({ size: e.target.value, page: 1 }));
+    $$("[data-page-to]", app).forEach(b => b.addEventListener("click", () => set({ page: b.dataset.pageTo })));
+    bindRowClicks(app);
+  };
+
+  // ------------------------------------------------------------------ page: assistant
+  PAGES.assistant = async (app, p) => {
+    const h = state.health || await call("/api/health");
+    app.innerHTML = head("Assistant", "Ask about the reconciliation. Answers come only from SQL run on Exasol, and every query is shown.") + `
+      <div class="grid"><div class="span-8"><section class="card"><div class="card-body">
+          <div class="thread" id="thread"></div>
+          <form class="askbox" id="ask-form"><input name="q" placeholder="e.g. Why did breaks spike?" maxlength="500" aria-label="Question" autocomplete="off"><button class="btn primary" type="submit"><i data-lucide="send"></i>Ask</button></form>
+          <div class="row" style="flex-wrap:wrap;margin-top:10px">${state.meta.suggestions.map(s => `<button class="btn sm" type="button" data-ask="${esc(s)}">${esc(s)}</button>`).join("")}</div>
+        </div></section></div>
+        <div class="span-4">${card("How it answers", "shield-check", `<div class="kv" style="grid-template-columns:1fr">
+            <div><dt>Mode</dt><dd>${h.agent_ready ? (h.agent_mode === "gemini" ? "Google Gemini, with read-only tools" : "Deterministic playbooks (no language model configured)") : esc(h.agent_error || "Starting…")}</dd></div>
+            <div><dt>Reads</dt><dd>Through the official Exasol MCP server, as a database user that can only SELECT</dd></div>
+            <div><dt>Numbers</dt><dd>Every number in an answer is checked against that turn's query results before it is shown</dd></div>
+            <div><dt>Changes</dt><dd>The assistant can only propose. A named person approves on the Actions page</dd></div></div>`)}</div></div>`;
+    const render = () => {
+      $("#thread").innerHTML = state.thread.length ? state.thread.map(m => m.q ? `<div class="msg-q">${esc(m.q)}</div>` : answerHtml(m)).join("") : `<div class="empty">Ask a question, or pick one below.</div>`;
+      icons($("#thread"));
+      $$("[data-open]", $("#thread")).forEach(b => b.addEventListener("click", () => openTxn(b.dataset.open)));
+    };
+    const ask = async (text) => {
+      state.thread.push({ q: text }, { pending: true });
+      render();
+      try { const a = await call("/api/ask", { question: text }); state.thread[state.thread.length - 1] = a; refreshPending(); }
+      catch (e) { state.thread[state.thread.length - 1] = { error: e.message }; }
+      render();
+    };
+    $("#ask-form").addEventListener("submit", e => { e.preventDefault(); const v = e.target.q.value.trim(); if (v) { e.target.q.value = ""; ask(v); } });
+    $$("[data-ask]", app).forEach(b => b.addEventListener("click", () => ask(b.dataset.ask)));
+    render();
+    if (p.ask) { history.replaceState(null, "", "#/assistant"); ask(p.ask); }
+  };
+  function answerHtml(a) {
+    if (a.pending) return `<div class="msg-a"><div class="answer muted">Running SQL on Exasol through the MCP server…</div></div>`;
+    if (a.error) return `<div class="msg-a"><div class="error-box">${esc(a.error)}</div></div>`;
+    const q = (a.queries || []).map((r, i) => `<details class="sql"><summary><span>Query ${i + 1} · ${fmt.n(r.row_count)} rows</span><span class="timing">${fmt.n(r.ms)} ms</span></summary><pre>${esc(r.sql)}</pre>
+      <div class="table-wrap" style="max-height:220px"><table class="data"><thead><tr>${r.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${r.rows.map(row => `<tr>${row.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>`).join("");
+    const prop = a.proposal ? (a.proposal.error ? `<span class="c-danger">Proposal refused: ${esc(a.proposal.error)}
