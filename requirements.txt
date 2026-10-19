@@ -1,0 +1,10 @@
+# Exact versions this repo was built and verified with (pip list, 2026-10-11). Python 3.13.5.
+pyexasol==2.4.1      # Exasol connector: load, recon, UI reads
+PyYAML==6.0.3        # facts.yaml + configs
+numpy==2.5.3         # synthetic data generator
+pyarrow==25.0.1      # generator CSV writer
+pandas==3.0.6        # independent cross-check matcher (crosscheck/dual_impl.py)
+mcp==2.3.0           # MCP client: the agent's reads go through the official Exasol MCP server
+google-genai==2.32.0 # optional: Gemini mode of the agent (needs GEMINI_API_KEY); pip index, 2026-10-22
+pytest==9.1.1        # tests/
+# Not pip-installed here: exasol-mcp-server==2.2.0 runs in its own environment via `uvx` (agent/mcp_reader.py).
