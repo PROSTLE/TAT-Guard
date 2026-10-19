@@ -1,0 +1,79 @@
+{
+  "generated": "2026-10-07",
+  "note": "Repos are cloned to vendor_refs/ for reading only (git-ignored, not vendored). Docs/datasets will be appended by import/fetch_docs.py and import/hf_pull.py.",
+  "sources": [
+    {
+      "kind": "repo",
+      "url": "https://github.com/exasol/mcp-server",
+      "commit": "2dd3ab93f786a96aea967c6f5f66f9c1e68c850e",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "retrieved": "2026-10-07T21:48:03+05:30",
+      "purpose": "Agent <-> Exasol via MCP (Phase 4); README + user_guide read for SETUP.md",
+      "vendored": false
+    },
+    {
+      "kind": "repo",
+      "url": "https://github.com/exasol-labs/exasol-agent-skills",
+      "commit": "b355ba1d4ef2fa3cdf37ae323cff92a29b6ae618",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "retrieved": "2026-10-07T21:48:06+05:30",
+      "purpose": "Reference for correct exapump/SQL/UDF usage by the building agent",
+      "vendored": false
+    },
+    {
+      "kind": "repo",
+      "url": "https://github.com/exasol/pyexasol",
+      "commit": "0d5adac9d6a9675128feeab1b8c93cd4e28582bc",
+      "license": "MIT",
+      "license_file": "LICENSE.txt",
+      "retrieved": "2026-10-07T21:48:09+05:30",
+      "purpose": "Official Python connector: generator load, verifier, backend; getting_started read for SETUP.md",
+      "vendored": false
+    },
+    {
+      "kind": "repo",
+      "url": "https://github.com/exasol-labs/exapump",
+      "commit": "d32ff2b1045e9377c2aa38d5cb37733c17aea2a0",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "retrieved": "2026-10-07T21:48:12+05:30",
+      "purpose": "Candidate bulk loader for 10M/50M rows (Phase 1)",
+      "vendored": false
+    },
+    {
+      "kind": "repo",
+      "url": "https://github.com/exasol/transformers-extension",
+      "commit": "90b17fcd3e9acd24cde3895328b06fc0cb492326",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "retrieved": "2026-10-07T21:48:15+05:30",
+      "purpose": "Optional narration NER (stretch)",
+      "vendored": false
+    },
+    {
+      "kind": "npm-package",
+      "name": "lucide",
+      "version": "1.47.0",
+      "url": "https://registry.npmjs.org/lucide/-/lucide-1.47.0.tgz",
+      "integrity": "verified against the registry's dist.integrity (sha512) on download",
+      "file": "ui/static/vendor/lucide-1.47.0/lucide.min.js",
+      "sha256": "c3291ea757ff3da0fc45a41d3ff60d61da9b257314962c5cdded94ca0df05d7a",
+      "license": "ISC",
+      "license_file": "ui/static/vendor/lucide-1.47.0/LICENSE",
+      "retrieved": "2026-10-12T02:20:00+05:30",
+      "purpose": "UI icons (vendored so the UI works offline)",
+      "vendored": true
+    },
+    {
+      "kind": "web-font",
+      "name": "Inter",
+      "url": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700",
+      "license": "SIL Open Font License 1.1 (per Google Fonts)",
+      "retrieved": "linked at runtime, not downloaded",
+      "purpose": "UI typeface; the page falls back to Segoe UI / system fonts offline",
+      "vendored": false
+    }
+  ]
+}
