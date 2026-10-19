@@ -150,4 +150,149 @@ def api_propose(body):
             results.append({"target_ref": t, **r})
         except actions.ActionError as e:
             results.append({"target_ref": t, "error": str(e)})
-    return {"resu
+    return {"results": results}
+
+
+def api_decide(action_id, approve, body):
+    if not ACTION_ID.match(action_id):
+        raise ValueError("bad action id")
+    t0 = time.perf_counter()
+    out = WRITE.run(lambda C: actions.decide(C, action_id, approve, body.get("user", "")))
+    out["total_ms"] = round((time.perf_counter() - t0) * 1000)
+    return out
+
+
+def api_meta(_):
+    """Everything the page would otherwise hard-code: allowed values, action types, sample questions."""
+    return {**api.vocabulary(), "action_types": actions.ACTION_TYPES, "suggestions": SUGGESTIONS}
+
+
+GET_ROUTES = {
+    "/api/meta": api_meta,
+    "/api/health": api_health,
+    "/api/overview": lambda a: api.overview(q),
+    "/api/trend": lambda a: api.trend(q),
+    "/api/activity": lambda a: api.activity(q, a.get("n", 12)),
+    "/api/queue": lambda a: api.queue(q, a),
+    "/api/transactions": lambda a: api.transactions(q, a),
+    "/api/txn": lambda a: api.transaction_detail(q, a.get("id", "")),
+    "/api/actions": lambda a: api.proposals(q, a.get("status", "")),
+    "/api/audit": lambda a: api.audit_log(q),
+    "/api/sources": lambda a: api.sources(q),
+    "/api/runs": lambda a: api.runs(q),
+    "/api/reports": lambda a: api.reports_list(),
+    "/api/report": lambda a: api.report_text(a.get("name", "")),
+}
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "TATGuard"
+
+    def _send(self, code, payload, ctype="application/json", extra=None):
+        data = payload if isinstance(payload, bytes) else (
+            payload.encode("utf-8") if isinstance(payload, str) else json.dumps(payload, default=str).encode("utf-8"))
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _guard(self, fn):
+        try:
+            res = fn()
+            code = HTTPStatus.OK
+            if isinstance(res, tuple):
+                res, code = res
+            self._send(code, res)
+        except (ValueError, actions.ActionError) as e:
+            self._send(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+        except Exception as e:
+            traceback.print_exc()
+            self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"{type(e).__name__}: {e}"[:500]})
+
+    def _static(self, rel: str):
+        p = (STATIC / unquote(rel)).resolve()
+        if STATIC.resolve() not in p.parents or not p.is_file():
+            return self._send(HTTPStatus.NOT_FOUND, {"error": "not found"})
+        ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+        if ctype.startswith("text/") or ctype in ("application/javascript", "text/javascript"):
+            ctype += "; charset=utf-8"
+        self._send(HTTPStatus.OK, p.read_bytes(), ctype)
+
+    def _foreign(self) -> bool:
+        """True (and a 403 sent) if the request does not come from this server's own page."""
+        origin = self.headers.get("Origin")
+        if self.headers.get("Host", "") not in LOCAL_HOSTS or (origin and urlparse(origin).netloc not in LOCAL_HOSTS):
+            self._send(HTTPStatus.FORBIDDEN, {"error": "request not from the TAT Guard page"})
+            return True
+        return False
+
+    def do_GET(self):
+        if self._foreign():
+            return
+        u = urlparse(self.path)
+        args = first(parse_qs(u.query))
+        if u.path in ("/", "/index.html"):
+            return self._send(HTTPStatus.OK, (ROOT / "ui" / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if u.path.startswith("/static/"):
+            return self._static(u.path[len("/static/"):])
+        if u.path == "/api/queue.csv":
+            try:
+                body = api.queue_csv(q, args)
+            except ValueError as e:
+                return self._send(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+            return self._send(HTTPStatus.OK, body, "text/csv; charset=utf-8",
+                              {"Content-Disposition": 'attachment; filename="tatguard_work_queue.csv"'})
+        if u.path in GET_ROUTES:
+            return self._guard(lambda: GET_ROUTES[u.path](args))
+        self._send(HTTPStatus.NOT_FOUND, {"error": "not found"})
+
+    def do_POST(self):
+        if self._foreign():
+            return
+        if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+            return self._send(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "Content-Type must be application/json"})
+        u = urlparse(self.path)
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > MAX_BODY:
+            return self._send(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "body too large"})
+        try:
+            body = json.loads(self.rfile.read(n) or b"{}")
+            if not isinstance(body, dict):
+                raise ValueError
+        except ValueError:
+            return self._send(HTTPStatus.BAD_REQUEST, {"error": "JSON object expected"})
+        m = re.fullmatch(r"/api/actions/([^/]+)/(approve|reject)", u.path)
+        if u.path == "/api/ask":
+            return self._guard(lambda: api_ask(body))
+        if u.path == "/api/propose":
+            return self._guard(lambda: api_propose(body))
+        if m:
+            return self._guard(lambda: api_decide(m.group(1), m.group(2) == "approve", body))
+        self._send(HTTPStatus.NOT_FOUND, {"error": "not found"})
+
+    def log_message(self, fmt, *args):  # one short line per request
+        sys.stderr.write(f"{self.log_date_time_string()} {fmt % args}\n")
+
+
+def main():
+    mimetypes.add_type("application/javascript", ".js")
+    mimetypes.add_type("text/css", ".css")
+    threading.Thread(target=start_agent, daemon=True, name="agent-start").start()
+    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"TAT Guard UI on http://{HOST}:{PORT}  (data: SYNTHETIC; host label: {host_label()})")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if AGENT["agent"]:
+            AGENT["agent"].reader.close()
+
+
+if __name__ == "__main__":
+    main()
