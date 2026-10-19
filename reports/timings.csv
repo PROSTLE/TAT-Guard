@@ -1,0 +1,129 @@
+run_id,scale,step,started,duration_ms,rows,host
+8c40cf2ecb42,1000000,schemas,2026-10-11T19:48:57,835,,exasol-personal-2.3.0-local-windows-podman
+8c40cf2ecb42,1000000,load RAW.SWITCH_LOG,2026-10-11T19:48:58,4798,1000000,exasol-personal-2.3.0-local-windows-podman
+8c40cf2ecb42,1000000,load RAW.NPCI_SETTLEMENT,2026-10-11T19:49:03,5197,952325,exasol-personal-2.3.0-local-windows-podman
+8c40cf2ecb42,1000000,load RAW.CBS_LEDGER,2026-10-11T19:49:08,6163,940706,exasol-personal-2.3.0-local-windows-podman
+8c40cf2ecb42,1000000,load RAW.SETTLEMENT_FILE_LOG,2026-10-11T19:49:14,156,28,exasol-personal-2.3.0-local-windows-podman
+8c40cf2ecb42,1000000,settings,2026-10-11T19:49:15,965,,exasol-personal-2.3.0-local-windows-podman
+7a24d260d1b7,1000000,recon 20_udfs.sql,2026-10-11T20:05:50,62,,exasol-personal-2.3.0-local-windows-podman
+7a24d260d1b7,1000000,recon 10_match_pass1.sql,2026-10-11T20:05:50,2399,,exasol-personal-2.3.0-local-windows-podman
+7a24d260d1b7,1000000,recon 10_match_pass2.sql,2026-10-11T20:05:52,2853,,exasol-personal-2.3.0-local-windows-podman
+7a24d260d1b7,1000000,recon 10_match_pass3.sql,2026-10-11T20:05:55,8599,,exasol-personal-2.3.0-local-windows-podman
+7a24d260d1b7,1000000,recon 10_match_pass4.sql,2026-10-11T20:06:03,907,,exasol-personal-2.3.0-local-windows-podman
+7a24d260d1b7,1000000,recon 15_classify.sql,2026-10-11T20:06:04,3866,,exasol-personal-2.3.0-local-windows-podman
+7a24d260d1b7,1000000,recon 30_penalty_view.sql,2026-10-11T20:06:08,151,,exasol-personal-2.3.0-local-windows-podman
+f1ba9f81cbd3,1000000,ingest pending NPCI file,2026-10-11T20:22:00,612,1000000,exasol-personal-2.3.0-local-windows-podman
+f1ba9f81cbd3,1000000,recon 20_udfs.sql,2026-10-11T20:22:01,77,,exasol-personal-2.3.0-local-windows-podman
+f1ba9f81cbd3,1000000,recon 10_match_pass1.sql,2026-10-11T20:22:01,2099,,exasol-personal-2.3.0-local-windows-podman
+f1ba9f81cbd3,1000000,recon 10_match_pass2.sql,2026-10-11T20:22:03,2678,,exasol-personal-2.3.0-local-windows-podman
+f1ba9f81cbd3,1000000,recon 10_match_pass3.sql,2026-10-11T20:22:06,7954,,exasol-personal-2.3.0-local-windows-podman
+f1ba9f81cbd3,1000000,recon 10_match_pass4.sql,2026-10-11T20:22:14,866,,exasol-personal-2.3.0-local-windows-podman
+f1ba9f81cbd3,1000000,recon 15_classify.sql,2026-10-11T20:22:15,3046,,exasol-personal-2.3.0-local-windows-podman
+f1ba9f81cbd3,1000000,recon 30_penalty_view.sql,2026-10-11T20:22:18,151,,exasol-personal-2.3.0-local-windows-podman
+56f868b34e24,1000000,schemas,2026-10-11T21:55:15,1878,,exasol-personal-2.3.0-local-windows-podman
+56f868b34e24,1000000,load RAW.SWITCH_LOG,2026-10-11T21:55:17,9851,1000000,exasol-personal-2.3.0-local-windows-podman
+56f868b34e24,1000000,load RAW.NPCI_SETTLEMENT,2026-10-11T21:55:27,10400,952325,exasol-personal-2.3.0-local-windows-podman
+56f868b34e24,1000000,load RAW.CBS_LEDGER,2026-10-11T21:55:37,12251,940706,exasol-personal-2.3.0-local-windows-podman
+56f868b34e24,1000000,load RAW.SETTLEMENT_FILE_LOG,2026-10-11T21:55:50,290,28,exasol-personal-2.3.0-local-windows-podman
+56f868b34e24,1000000,settings,2026-10-11T21:55:50,2023,,exasol-personal-2.3.0-local-windows-podman
+50e153d354c3,1000000,recon 20_udfs.sql,2026-10-11T21:55:57,150,,exasol-personal-2.3.0-local-windows-podman
+50e153d354c3,1000000,recon 10_match_pass1.sql,2026-10-11T21:55:57,4212,,exasol-personal-2.3.0-local-windows-podman
+50e153d354c3,1000000,recon 10_match_pass2.sql,2026-10-11T21:56:02,6096,,exasol-personal-2.3.0-local-windows-podman
+50e153d354c3,1000000,recon 10_match_pass3.sql,2026-10-11T21:56:08,16603,,exasol-personal-2.3.0-local-windows-podman
+50e153d354c3,1000000,recon 10_match_pass4.sql,2026-10-11T21:56:24,2074,,exasol-personal-2.3.0-local-windows-podman
+50e153d354c3,1000000,recon 15_classify.sql,2026-10-11T21:56:26,8026,,exasol-personal-2.3.0-local-windows-podman
+50e153d354c3,1000000,recon 30_penalty_view.sql,2026-10-11T21:56:34,395,,exasol-personal-2.3.0-local-windows-podman
+act-E525C4C61952,after-action,recon 20_udfs.sql,2026-10-11T22:07:11,138,,exasol-personal-2.3.0-local-windows-podman
+act-E525C4C61952,after-action,recon 10_match_pass1.sql,2026-10-11T22:07:11,3357,,exasol-personal-2.3.0-local-windows-podman
+act-E525C4C61952,after-action,recon 10_match_pass2.sql,2026-10-11T22:07:14,5342,,exasol-personal-2.3.0-local-windows-podman
+act-E525C4C61952,after-action,recon 10_match_pass3.sql,2026-10-11T22:07:19,16957,,exasol-personal-2.3.0-local-windows-podman
+act-E525C4C61952,after-action,recon 10_match_pass4.sql,2026-10-11T22:07:36,2160,,exasol-personal-2.3.0-local-windows-podman
+act-E525C4C61952,after-action,recon 15_classify.sql,2026-10-11T22:07:39,8695,,exasol-personal-2.3.0-local-windows-podman
+act-E525C4C61952,after-action,recon 30_penalty_view.sql,2026-10-11T22:07:47,429,,exasol-personal-2.3.0-local-windows-podman
+act-B5D0F631870B,after-action,recon 20_udfs.sql,2026-10-11T22:08:07,134,,exasol-personal-2.3.0-local-windows-podman
+act-B5D0F631870B,after-action,recon 10_match_pass1.sql,2026-10-11T22:08:07,3310,,exasol-personal-2.3.0-local-windows-podman
+act-B5D0F631870B,after-action,recon 10_match_pass2.sql,2026-10-11T22:08:10,5350,,exasol-personal-2.3.0-local-windows-podman
+act-B5D0F631870B,after-action,recon 10_match_pass3.sql,2026-10-11T22:08:15,16209,,exasol-personal-2.3.0-local-windows-podman
+act-B5D0F631870B,after-action,recon 10_match_pass4.sql,2026-10-11T22:08:32,1963,,exasol-personal-2.3.0-local-windows-podman
+act-B5D0F631870B,after-action,recon 15_classify.sql,2026-10-11T22:08:34,7925,,exasol-personal-2.3.0-local-windows-podman
+act-B5D0F631870B,after-action,recon 30_penalty_view.sql,2026-10-11T22:08:41,423,,exasol-personal-2.3.0-local-windows-podman
+act-DA1289C4F8C4,after-action,recon 20_udfs.sql,2026-10-11T22:10:12,145,,exasol-personal-2.3.0-local-windows-podman
+act-DA1289C4F8C4,after-action,recon 10_match_pass1.sql,2026-10-11T22:10:12,3247,,exasol-personal-2.3.0-local-windows-podman
+act-DA1289C4F8C4,after-action,recon 10_match_pass2.sql,2026-10-11T22:10:15,5187,,exasol-personal-2.3.0-local-windows-podman
+act-DA1289C4F8C4,after-action,recon 10_match_pass3.sql,2026-10-11T22:10:21,16105,,exasol-personal-2.3.0-local-windows-podman
+act-DA1289C4F8C4,after-action,recon 10_match_pass4.sql,2026-10-11T22:10:37,1960,,exasol-personal-2.3.0-local-windows-podman
+act-DA1289C4F8C4,after-action,recon 15_classify.sql,2026-10-11T22:10:39,8002,,exasol-personal-2.3.0-local-windows-podman
+act-DA1289C4F8C4,after-action,recon 30_penalty_view.sql,2026-10-11T22:10:47,358,,exasol-personal-2.3.0-local-windows-podman
+dcdac477b115,10000000,schemas,2026-10-11T22:11:41,1734,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+dcdac477b115,10000000,load RAW.SWITCH_LOG,2026-10-11T22:11:42,96431,10000000,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+dcdac477b115,10000000,load RAW.NPCI_SETTLEMENT,2026-10-11T22:13:19,100870,9520093,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+dcdac477b115,10000000,load RAW.CBS_LEDGER,2026-10-11T22:15:00,750898,9406410,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+dcdac477b115,10000000,load RAW.SETTLEMENT_FILE_LOG,2026-10-11T22:27:31,433,28,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+dcdac477b115,10000000,settings,2026-10-11T22:27:31,2317,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+b8de6cff1bc4,10000000,recon 20_udfs.sql,2026-10-11T22:27:44,154,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+b8de6cff1bc4,10000000,recon 10_match_pass1.sql,2026-10-11T22:27:44,30238,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+b8de6cff1bc4,10000000,recon 10_match_pass2.sql,2026-10-11T22:28:14,43304,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+b8de6cff1bc4,10000000,recon 10_match_pass3.sql,2026-10-11T22:28:58,120111,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+b8de6cff1bc4,10000000,recon 10_match_pass4.sql,2026-10-11T22:30:58,30152,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+b8de6cff1bc4,10000000,recon 15_classify.sql,2026-10-11T22:31:28,49773,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+b8de6cff1bc4,10000000,recon 30_penalty_view.sql,2026-10-11T22:32:18,433,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+66cfb03537ba,10000000,recon 20_udfs.sql,2026-10-11T22:32:21,191,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+66cfb03537ba,10000000,recon 10_match_pass1.sql,2026-10-11T22:32:21,32535,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+66cfb03537ba,10000000,recon 10_match_pass2.sql,2026-10-11T22:32:54,43763,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+66cfb03537ba,10000000,recon 10_match_pass3.sql,2026-10-11T22:33:38,130945,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+66cfb03537ba,10000000,recon 10_match_pass4.sql,2026-10-11T22:35:49,29966,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+66cfb03537ba,10000000,recon 15_classify.sql,2026-10-11T22:36:19,46458,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+66cfb03537ba,10000000,recon 30_penalty_view.sql,2026-10-11T22:37:05,423,,"exasol-personal-2.3.0-local-windows-podman (12 CPU laptop, idle)"
+e1ae675eb31b,1000000,schemas,2026-10-11T22:40:33,1840,,exasol-personal-2.3.0-local-windows-podman
+e1ae675eb31b,1000000,load RAW.SWITCH_LOG,2026-10-11T22:40:35,10418,1000000,exasol-personal-2.3.0-local-windows-podman
+e1ae675eb31b,1000000,load RAW.NPCI_SETTLEMENT,2026-10-11T22:40:46,11529,952325,exasol-personal-2.3.0-local-windows-podman
+e1ae675eb31b,1000000,load RAW.CBS_LEDGER,2026-10-11T22:40:57,13874,940706,exasol-personal-2.3.0-local-windows-podman
+e1ae675eb31b,1000000,load RAW.SETTLEMENT_FILE_LOG,2026-10-11T22:41:11,292,28,exasol-personal-2.3.0-local-windows-podman
+e1ae675eb31b,1000000,settings,2026-10-11T22:41:11,2074,,exasol-personal-2.3.0-local-windows-podman
+e0e80c7006a6,1000000,recon 20_udfs.sql,2026-10-11T22:41:19,131,,exasol-personal-2.3.0-local-windows-podman
+e0e80c7006a6,1000000,recon 10_match_pass1.sql,2026-10-11T22:41:19,4090,,exasol-personal-2.3.0-local-windows-podman
+e0e80c7006a6,1000000,recon 10_match_pass2.sql,2026-10-11T22:41:23,5872,,exasol-personal-2.3.0-local-windows-podman
+e0e80c7006a6,1000000,recon 10_match_pass3.sql,2026-10-11T22:41:29,17596,,exasol-personal-2.3.0-local-windows-podman
+e0e80c7006a6,1000000,recon 10_match_pass4.sql,2026-10-11T22:41:46,1923,,exasol-personal-2.3.0-local-windows-podman
+e0e80c7006a6,1000000,recon 15_classify.sql,2026-10-11T22:41:48,7844,,exasol-personal-2.3.0-local-windows-podman
+e0e80c7006a6,1000000,recon 30_penalty_view.sql,2026-10-11T22:41:56,412,,exasol-personal-2.3.0-local-windows-podman
+d0062ef22494,1000000,schemas,2026-10-11T22:44:03,1823,,exasol-personal-2.3.0-local-windows-podman
+d0062ef22494,1000000,load RAW.SWITCH_LOG,2026-10-11T22:44:05,10468,1000000,exasol-personal-2.3.0-local-windows-podman
+d0062ef22494,1000000,load RAW.NPCI_SETTLEMENT,2026-10-11T22:44:15,11243,952325,exasol-personal-2.3.0-local-windows-podman
+d0062ef22494,1000000,load RAW.CBS_LEDGER,2026-10-11T22:44:27,13369,940706,exasol-personal-2.3.0-local-windows-podman
+d0062ef22494,1000000,load RAW.SETTLEMENT_FILE_LOG,2026-10-11T22:44:40,328,28,exasol-personal-2.3.0-local-windows-podman
+d0062ef22494,1000000,settings,2026-10-11T22:44:40,2360,,exasol-personal-2.3.0-local-windows-podman
+a7a832cb1a6d,1000000,recon 20_udfs.sql,2026-10-11T22:44:48,154,,exasol-personal-2.3.0-local-windows-podman
+a7a832cb1a6d,1000000,recon 10_match_pass1.sql,2026-10-11T22:44:48,4223,,exasol-personal-2.3.0-local-windows-podman
+a7a832cb1a6d,1000000,recon 10_match_pass2.sql,2026-10-11T22:44:53,5989,,exasol-personal-2.3.0-local-windows-podman
+a7a832cb1a6d,1000000,recon 10_match_pass3.sql,2026-10-11T22:44:59,16721,,exasol-personal-2.3.0-local-windows-podman
+a7a832cb1a6d,1000000,recon 10_match_pass4.sql,2026-10-11T22:45:15,1881,,exasol-personal-2.3.0-local-windows-podman
+a7a832cb1a6d,1000000,recon 15_classify.sql,2026-10-11T22:45:17,7837,,exasol-personal-2.3.0-local-windows-podman
+a7a832cb1a6d,1000000,recon 30_penalty_view.sql,2026-10-11T22:45:25,432,,exasol-personal-2.3.0-local-windows-podman
+act-5A5694993D86,after-action,recon 20_udfs.sql,2026-10-12T02:35:07,84,,exasol-personal-2.3.0-local-windows-podman
+act-5A5694993D86,after-action,recon 10_match_pass1.sql,2026-10-12T02:35:07,2287,,exasol-personal-2.3.0-local-windows-podman
+act-5A5694993D86,after-action,recon 10_match_pass2.sql,2026-10-12T02:35:09,3475,,exasol-personal-2.3.0-local-windows-podman
+act-5A5694993D86,after-action,recon 10_match_pass3.sql,2026-10-12T02:35:13,12159,,exasol-personal-2.3.0-local-windows-podman
+act-5A5694993D86,after-action,recon 10_match_pass4.sql,2026-10-12T02:35:25,1550,,exasol-personal-2.3.0-local-windows-podman
+act-5A5694993D86,after-action,recon 15_classify.sql,2026-10-12T02:35:26,7990,,exasol-personal-2.3.0-local-windows-podman
+act-5A5694993D86,after-action,recon 30_penalty_view.sql,2026-10-12T02:35:34,227,,exasol-personal-2.3.0-local-windows-podman
+act-77EFF159C389,after-action,recon 20_udfs.sql,2026-10-12T02:37:49,78,,exasol-personal-2.3.0-local-windows-podman
+act-77EFF159C389,after-action,recon 10_match_pass1.sql,2026-10-12T02:37:49,2062,,exasol-personal-2.3.0-local-windows-podman
+act-77EFF159C389,after-action,recon 10_match_pass2.sql,2026-10-12T02:37:51,2720,,exasol-personal-2.3.0-local-windows-podman
+act-77EFF159C389,after-action,recon 10_match_pass3.sql,2026-10-12T02:37:54,9330,,exasol-personal-2.3.0-local-windows-podman
+act-77EFF159C389,after-action,recon 10_match_pass4.sql,2026-10-12T02:38:03,980,,exasol-personal-2.3.0-local-windows-podman
+act-77EFF159C389,after-action,recon 15_classify.sql,2026-10-12T02:38:04,4733,,exasol-personal-2.3.0-local-windows-podman
+act-77EFF159C389,after-action,recon 30_penalty_view.sql,2026-10-12T02:38:09,188,,exasol-personal-2.3.0-local-windows-podman
+4784c999c536,1000000,schemas,2026-10-12T02:38:17,925,,exasol-personal-2.3.0-local-windows-podman
+4784c999c536,1000000,load RAW.SWITCH_LOG,2026-10-12T02:38:19,4942,1000000,exasol-personal-2.3.0-local-windows-podman
+4784c999c536,1000000,load RAW.NPCI_SETTLEMENT,2026-10-12T02:38:24,5378,952325,exasol-personal-2.3.0-local-windows-podman
+4784c999c536,1000000,load RAW.CBS_LEDGER,2026-10-12T02:38:29,6275,940706,exasol-personal-2.3.0-local-windows-podman
+4784c999c536,1000000,load RAW.SETTLEMENT_FILE_LOG,2026-10-12T02:38:35,182,28,exasol-personal-2.3.0-local-windows-podman
+4784c999c536,1000000,settings,2026-10-12T02:38:35,967,,exasol-personal-2.3.0-local-windows-podman
+68e2198f3402,1000000,recon 20_udfs.sql,2026-10-12T02:38:39,74,,exasol-personal-2.3.0-local-windows-podman
+68e2198f3402,1000000,recon 10_match_pass1.sql,2026-10-12T02:38:39,2100,,exasol-personal-2.3.0-local-windows-podman
+68e2198f3402,1000000,recon 10_match_pass2.sql,2026-10-12T02:38:41,3077,,exasol-personal-2.3.0-local-windows-podman
+68e2198f3402,1000000,recon 10_match_pass3.sql,2026-10-12T02:38:44,8451,,exasol-personal-2.3.0-local-windows-podman
+68e2198f3402,1000000,recon 10_match_pass4.sql,2026-10-12T02:38:53,1093,,exasol-personal-2.3.0-local-windows-podman
+68e2198f3402,1000000,recon 15_classify.sql,2026-10-12T02:38:54,4902,,exasol-personal-2.3.0-local-windows-podman
+68e2198f3402,1000000,recon 30_penalty_view.sql,2026-10-12T02:38:59,197,,exasol-personal-2.3.0-local-windows-podman
