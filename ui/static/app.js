@@ -506,4 +506,205 @@
     if (a.error) return `<div class="msg-a"><div class="error-box">${esc(a.error)}</div></div>`;
     const q = (a.queries || []).map((r, i) => `<details class="sql"><summary><span>Query ${i + 1} · ${fmt.n(r.row_count)} rows</span><span class="timing">${fmt.n(r.ms)} ms</span></summary><pre>${esc(r.sql)}</pre>
       <div class="table-wrap" style="max-height:220px"><table class="data"><thead><tr>${r.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${r.rows.map(row => `<tr>${row.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>`).join("");
-    const prop = a.proposal ? (a.proposal.error ? `<span class="c-danger">Proposal refused: ${esc(a.proposal.error)}
+    const prop = a.proposal ? (a.proposal.error ? `<span class="c-danger">Proposal refused: ${esc(a.proposal.error)}</span>` :
+      `<span><i data-lucide="clipboard-check"></i><a href="#/actions?status=PROPOSED">Proposal ${esc(a.proposal.action_id)}</a>${a.proposal.duplicate ? " (already pending)" : ""} waits for approval</span>`) : "";
+    return `<div class="msg-a"><div class="answer">${esc(a.answer)}</div>
+      <div class="msg-meta">${a.grounded ? `<span><i data-lucide="check"></i>Every number matches the query results</span>` : `<span class="c-danger"><i data-lucide="circle-alert"></i>Not shown as an answer: ${esc((a.ungrounded || []).join(", "))}</span>`}
+        <span><i data-lucide="database"></i>${fmt.n((a.queries || []).length)} ${(a.queries || []).length === 1 ? "query" : "queries"}</span><span><i data-lucide="timer"></i>${fmt.n(a.total_ms)} ms</span>${prop}</div>${q}</div>`;
+  }
+
+  // ------------------------------------------------------------------ page: actions
+  PAGES.actions = async (app, p) => {
+    const status = p.status || "";
+    const r = await call("/api/actions" + (status ? "?status=" + encodeURIComponent(status) : ""));
+    const all = Object.values(r.counts).reduce((a, b) => a + Number(b), 0);
+    setPending(r.counts.PROPOSED || 0);
+    // APPROVED is transient (decide() moves it on to EXECUTED/LOGGED/FAILED), so its tab shows only when rows sit there
+    const tabs = [["", "All", all], ...state.meta.action_statuses.filter(s => s !== "APPROVED" || r.counts[s])
+      .map(s => [s, STATUS_TAB[s] || title(s), r.counts[s] || 0])];
+    app.innerHTML = head("Proposed Actions", "Nothing changes until a named person approves. Approving runs a fixed SQL template, re-runs the reconciliation and writes the audit log.") + `
+      <section class="card"><div class="tabs">${tabs.map(([s, l, n]) => `<button class="tab ${status === s ? "active" : ""}" data-st="${esc(s)}" type="button">${esc(l)} <em>${fmt.n(n)}</em></button>`).join("")}</div>
+        <div style="margin-top:12px">${r.rows.map(actionCard).join("") || `<div class="empty">No actions here.</div>`}</div>
+        <div class="card-foot"><span>The only action types: ${Object.entries(state.meta.action_types).map(([k, d]) => `<span title="${esc(d)}">${esc(actionMeta(k).label)}</span>`).join(", ")}</span><span class="timing">${r.ms} ms</span></div></section>`;
+    $$("[data-st]", app).forEach(b => b.addEventListener("click", () => go("actions", { status: b.dataset.st })));
+    $$("[data-open]", app).forEach(b => b.addEventListener("click", () => openTxn(b.dataset.open)));
+    $$("[data-decide]", app).forEach(b => b.addEventListener("click", () => decide(b)));
+  };
+  function actionCard(a) {
+    const m = actionMeta(a.ACTION_TYPE);
+    const target = a.ACTION_TYPE === "CHASE_SETTLEMENT_FILE" ? `<span class="mono">${esc(a.TARGET_REF)}</span>` : `<button class="btn ghost sm mono" data-open="${esc(a.TARGET_REF)}" type="button">${esc(a.TARGET_REF)}</button>`;
+    return `<div class="action-card"><div>
+        <h4><i data-lucide="${m.icon}"></i>${esc(m.label)} ${target} ${pill(title(a.STATUS), STATUS_TONE[a.STATUS] || "neutral")}</h4>
+        <p class="wrap">${esc(a.RATIONALE || "")}</p>
+        <div class="meta"><span>Proposed by ${esc(a.CREATED_BY)} · ${fmt.dt(a.CREATED)}</span>${a.DECIDED_BY ? `<span>Decided by ${esc(a.DECIDED_BY)} · ${fmt.dt(a.DECIDED)}</span>` : ""}<span class="mono">${esc(a.ACTION_ID)}</span></div></div>
+      <div class="side">${a.STATUS === "PROPOSED" ? `<button class="btn" data-decide="reject" data-id="${esc(a.ACTION_ID)}" type="button"><i data-lucide="x"></i>Reject</button>
+        <button class="btn primary" data-decide="approve" data-id="${esc(a.ACTION_ID)}" type="button"><i data-lucide="check"></i>Approve</button>` : ""}</div></div>`;
+  }
+  async function decide(btn) {
+    const user = who.require();
+    if (!user) return;
+    const approve = btn.dataset.decide === "approve";
+    if (!btn.dataset.armed) {   // two-step confirmation, no browser dialog
+      btn.dataset.armed = "1";
+      btn.innerHTML = `<i data-lucide="${approve ? "check" : "x"}"></i>Confirm ${approve ? "approval" : "rejection"} as ${esc(user)}`;
+      icons(btn);
+      setTimeout(() => { if (btn.isConnected && btn.dataset.armed) { delete btn.dataset.armed; route(); } }, 6000);
+      return;
+    }
+    const side = btn.closest(".side");
+    $$("button", side).forEach(b => (b.disabled = true));
+    btn.innerHTML = approve ? "Executing and re-running the reconciliation…" : "Rejecting…";
+    try {
+      const r = await call(`/api/actions/${encodeURIComponent(btn.dataset.id)}/${approve ? "approve" : "reject"}`, { user });
+      if (r.status === "FAILED") toast(`Execution failed and was logged: ${esc(r.error || "")}`, true);
+      else if (approve && r.before && r.after && r.status === "EXECUTED") toast(`Executed. Owed tomorrow across the queue: ${fmt.rs(r.before.exposure_next_24h_rs)} → ${fmt.rs(r.after.exposure_next_24h_rs)} (${fmt.n(Math.round(r.total_ms / 1000))} s).`);
+      else toast(`${title(r.status)}: ${esc(btn.dataset.id)}`);
+    } catch (e) { toast(esc(e.message), true); }
+    loadShell(); route();
+  }
+
+  // ------------------------------------------------------------------ page: audit
+  PAGES.audit = async (app) => {
+    const r = await call("/api/audit");
+    const eff = row => {
+      try {
+        const b = JSON.parse(row.BEFORE_JSON || "{}"), a = JSON.parse(row.AFTER_JSON || "{}");
+        const t = a.target && b.target ? `<div class="delta">Case ${esc(title(b.target.STATUS))}<i data-lucide="arrow-right"></i>${esc(title(a.target.STATUS))}${a.target.COMP_STATUS ? ` · compensation ${esc(title(a.target.COMP_STATUS))}` : ""}</div>` : "";
+        return `<div class="delta">${fmt.rs(b.exposure_next_24h_rs)}<i data-lucide="arrow-right"></i>${fmt.rs(a.exposure_next_24h_rs)} owed tomorrow</div>${t}${a.error ? `<div class="c-danger">${esc(a.error)}</div>` : ""}`;
+      } catch (e) { return "–"; }
+    };
+    app.innerHTML = head("Audit Log", "Every executed action: who approved it, when, the exact SQL that ran, and the numbers before and after.") + `
+      <section class="card"><div class="table-wrap"><table class="data"><thead><tr><th>Executed</th><th>Action</th><th>Target</th><th>Proposed by</th><th>Approved by</th><th>Outcome</th><th>Effect</th></tr></thead>
+        <tbody>${r.rows.map(x => `<tr><td>${fmt.dt(x.EXECUTED)}</td>
+          <td><b>${esc(actionMeta(x.ACTION_TYPE).label)}</b><div class="mono subtle">${esc(x.ACTION_ID)}</div></td>
+          <td class="mono wrap">${esc(x.TARGET_REF)}</td><td>${esc(x.CREATED_BY || "–")}</td><td>${esc(x.EXECUTED_BY)}</td>
+          <td>${pill(title(x.OUTCOME), STATUS_TONE[x.OUTCOME] || "neutral")}</td>
+          <td>${eff(x)}<details class="sql"><summary><span>Executed SQL</span><i data-lucide="chevrons-up-down"></i></summary><pre>${esc(x.EXECUTED_SQL)}</pre></details></td></tr>`).join("")
+          || `<tr><td colspan="7"><div class="empty">Nothing has been executed yet.</div></td></tr>`}</tbody></table></div>
+        <div class="card-foot"><span>The audit tables are append-only; a demo reset with <span class="mono">--reset-audit</span> is the only way they are emptied</span><span class="timing">${r.ms} ms</span></div></section>`;
+  };
+
+  // ------------------------------------------------------------------ page: data sources
+  PAGES.sources = async (app) => {
+    const [s, o] = await Promise.all([call("/api/sources"), call("/api/overview")]);
+    setContext(o);
+    const META = { SWITCH_LOG: ["UPI switch log", "arrow-left-right", "var(--info-soft);color:var(--info)"],
+      NPCI_SETTLEMENT: ["NPCI settlement file", "landmark", "var(--brand-soft);color:var(--brand)"],
+      CBS_LEDGER: ["Core-banking ledger", "book-open", "var(--violet-soft);color:var(--violet)"],
+      SETTLEMENT_FILE_LOG: ["Settlement file arrivals", "file-clock", "var(--warn-soft);color:var(--warn)"] };
+    const dates = [...new Set(s.files.map(f => f.SETTLEMENT_DT))];
+    const cycles = [...new Set(s.files.map(f => f.CYCLE_NO))].sort((a, b) => a - b);
+    const STATUS_LABEL = { ON_TIME: "On time", LATE: "Late", NOT_ARRIVED: "Missing", NOT_DUE: "Not due" };
+    const cell = f => f ? `<div class="filecell f-${esc(f.FILE_STATUS)}" title="${esc(STATUS_LABEL[f.FILE_STATUS] || f.FILE_STATUS)} · expected ${esc(f.EXPECTED)}${f.ARRIVED ? " · arrived " + esc(f.ARRIVED) : ""} · ${fmt.n(f.RECORD_COUNT)} records">${esc(STATUS_LABEL[f.FILE_STATUS] || f.FILE_STATUS)}</div>` : "<div></div>";
+    const late = s.files.filter(f => f.FILE_STATUS !== "ON_TIME" && f.FILE_STATUS !== "NOT_DUE");
+    const h = state.health || await call("/api/health");
+    app.innerHTML = head("Data Sources", "The three synthetic sources the reconciliation reads, as loaded into Exasol, and the settlement files' arrival record.") + `
+      <div class="grid">${s.tables.map(t => { const m = META[t.TABLE] || [t.TABLE, "table-2", "var(--neutral-soft);color:var(--text)"]; return `<div class="span-3"><section class="card source-card">
+          <div class="top"><span class="ic" style="background:${m[2]}"><i data-lucide="${m[1]}"></i></span><div><h4>${esc(m[0])}</h4><div class="mono subtle">RAW.${esc(t.TABLE)}</div></div></div>
+          <dl><div><dt>Rows</dt><dd>${fmt.n(t.ROWS)}</dd></div><div><dt>Columns</dt><dd>${fmt.n(t.COLS)}</dd></div><div><dt>Load time</dt><dd>${t.LOAD_MS !== null && t.LOAD_MS !== undefined ? fmt.n(Math.round(Number(t.LOAD_MS) / 100) / 10) + " s" : "–"}</dd></div></dl>
+          <div class="muted" style="font-size:12.5px">Last loaded ${t.LOADED ? fmt.dt(t.LOADED) : "– (no load logged)"}</div></section></div>`; }).join("")}
+        <div class="span-8">${card("Settlement files by day and cycle", "file-clock", `<div class="filegrid" style="--cycles:${cycles.length}">
+            <div></div>${cycles.map(c => `<div class="h">Cycle ${fmt.n(c)}</div>`).join("")}
+            ${dates.map(d => `<div class="d">${fmt.dayLong(d)}</div>${cycles.map(c => cell(s.files.find(f => f.SETTLEMENT_DT === d && f.CYCLE_NO === c))).join("")}`).join("")}</div>
+            <div class="legend" style="margin-top:12px">${Object.entries(STATUS_LABEL).map(([k, l]) => `<span><i class="sw f-${k}"></i>${l}</span>`).join("")}</div>`, "",
+          `<span>${late.length ? late.map(f => `${fmt.dayLong(f.SETTLEMENT_DT)} cycle ${fmt.n(f.CYCLE_NO)}: ${esc(STATUS_LABEL[f.FILE_STATUS])}, ${fmt.n(f.MINUTES_AFTER_EXPECTED)} min after expected`).join(" · ") : "Every due file arrived on time"} · late means more than ${fmt.n(s.grace_minutes)} min after expected</span><span class="timing">${s.ms} ms</span>`)}</div>
+        <div class="span-4" style="display:grid;gap:16px;align-content:start">
+          ${card("TAT rules in force", "scale", `<table class="data"><thead><tr><th>Type</th><th class="n">TAT</th><th class="n">Beyond TAT</th><th>Source</th></tr></thead><tbody>
+            ${o.rules.map(r => `<tr><td>${esc(r.TXN_TYPE)}</td><td class="n">T+${fmt.n(r.TAT_DAYS)}</td><td class="n">${fmt.rs(r.RS_PER_DAY)}/day</td><td class="mono">${esc(r.FACT_ID)}</td></tr>`).join("")}</tbody></table>`, "",
+            `<span>Loaded from facts.yaml into RECON.TAT_RULES; never typed into SQL</span>`)}
+          ${card("Connection", "server", `<div class="kv"><div><dt>Database</dt><dd>Exasol ${esc(h.version)}</dd></div><div><dt>Host</dt><dd class="mono">${esc(h.host)}</dd></div>
+            <div><dt>Instance label</dt><dd>${esc(h.host_label)}</dd></div><div><dt>Assistant</dt><dd>${esc(h.agent_ready ? h.agent_mode : (h.agent_error || "starting"))}</dd></div></div>`)}
+        </div></div>`;
+  };
+
+  // ------------------------------------------------------------------ page: reports
+  PAGES.reports = async (app, p) => {
+    const [list, runs] = await Promise.all([call("/api/reports"), call("/api/runs")]);
+    const name = p.name || (list.items.find(i => i.name.startsWith("verifier_")) || list.items[0] || {}).name;
+    const doc = name ? await call("/api/report?name=" + encodeURIComponent(name)) : null;
+    app.innerHTML = head("Reports", "Saved verification reports and measured run timings, straight from the repository's reports folder.") + `
+      <div class="grid"><div class="span-4" style="display:grid;gap:16px;align-content:start"><section class="card"><div class="card-head"><h3><span class="hicon"><i data-lucide="file-text"></i></span>Reports</h3></div>
+          <div class="report-list" style="margin-top:10px">${list.items.map(i => `<button class="${i.name === name ? "active" : ""}" data-name="${esc(i.name)}" type="button"><i data-lucide="${i.name.endsWith(".csv") ? "table-2" : "file-text"}"></i><span><span class="wrap">${esc(i.name)}</span><small>${fmt.dt(i.modified)} · ${fmt.n(Math.ceil(i.bytes / 1024))} KB</small></span></button>`).join("")}</div></section>
+          ${card("Reconciliation runs", "timer", `<div class="table-wrap"><table class="data"><thead><tr><th>Started</th><th class="n">Recon</th><th class="n">Load</th></tr></thead><tbody>
+            ${runs.runs.map(r => `<tr><td>${fmt.dt(r.STARTED)}</td><td class="n">${Number(r.RECON_MS) ? fmt.n(Math.round(Number(r.RECON_MS) / 100) / 10) + " s" : "–"}</td><td class="n">${Number(r.LOAD_MS) ? fmt.n(Math.round(Number(r.LOAD_MS) / 100) / 10) + " s" : "–"}</td></tr>`).join("")}</tbody></table></div>`, "", `<span>From RECON.RUN_LOG, measured with a timer around each Exasol call</span>`)}</div>
+        <div class="span-8"><section class="card"><div class="card-head"><h3><span class="hicon"><i data-lucide="file-search"></i></span><span class="mono">${esc(name || "No reports")}</span></h3></div>
+          <div class="card-body md">${doc ? renderDoc(doc) : `<div class="empty">No reports saved yet.</div>`}</div></section></div></div>`;
+    $$("[data-name]", app).forEach(b => b.addEventListener("click", () => go("reports", { name: b.dataset.name })));
+  };
+  function renderDoc(doc) {
+    if (doc.name.endsWith(".csv")) {
+      const rows = doc.text.trim().split(/\r?\n/).map(l => l.split(","));
+      return `<div class="table-wrap" style="max-height:640px"><table class="data"><thead><tr>${rows[0].map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows.slice(1).map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    }
+    // minimal, escape-first Markdown: headings, tables, fenced code, bold, paragraphs
+    const out = [], lines = doc.text.split(/\r?\n/);
+    const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, '<span class="mono">$1</span>');
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (l.startsWith("```")) { const buf = []; i++; while (i < lines.length && !lines[i].startsWith("```")) buf.push(lines[i++]); out.push(`<pre class="code">${esc(buf.join("\n"))}</pre>`); continue; }
+      const hm = l.match(/^(#{1,3})\s+(.*)/);
+      if (hm) { out.push(`<h${hm[1].length}>${inline(hm[2])}</h${hm[1].length}>`); continue; }
+      if (l.trim().startsWith("|")) {
+        const rows = []; while (i < lines.length && lines[i].trim().startsWith("|")) rows.push(lines[i++]); i--;
+        const cells = r => r.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+        const body = rows.filter((r, k) => k !== 1 || !/^[\s|:-]+$/.test(r));
+        out.push(`<div class="table-wrap"><table class="data"><thead><tr>${cells(body[0]).map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${body.slice(1).map(r => `<tr>${cells(r).map(c => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+        continue;
+      }
+      if (l.trim()) out.push(`<p>${inline(l)}</p>`);
+    }
+    return out.join("");
+  }
+
+  // ------------------------------------------------------------------ transaction drawer
+  async function openTxn(id) {
+    const d = $("#drawer"), body = $("#drawer-body");
+    $("#drawer-title").textContent = id;
+    body.innerHTML = `<div class="loading">Loading…</div>`;
+    d.classList.add("open"); d.setAttribute("aria-hidden", "false"); $("#scrim").hidden = false;
+    try {
+      const t = await call("/api/txn?id=" + encodeURIComponent(id));
+      const e = t.exception || {}, s = t.state || {}, pen = t.penalty, qr = t.queue;
+      $("#drawer-title").textContent = s.UPI_TXN_ID || e.UPI_TXN_ID || e.CBS_ENTRY_ID || id;
+      const act = qr && !t.actions.some(a => a.STATUS === "PROPOSED") ? qr.PROPOSE_ACTION : null;
+      const sw = t.switch.map(r => `<div class="box"><b>${esc(title(r.STATUS))}</b> · ${fmt.rs(r.AMOUNT_RS)} · response ${esc(r.RESP_CODE)} · channel ${esc(r.CHANNEL)}<div class="subtle">${fmt.dt(r.TXN_TIME)} · RRN <span class="mono">${esc(r.RRN)}</span>${r.UPI_TXN_ID ? "" : " · no UPI id logged"}</div></div>`).join("") || `<div class="box">No switch record.</div>`;
+      const np = t.npci.map(r => `<div class="box"><b>${esc(title(r.STATUS))}</b> · ${fmt.rs(r.AMOUNT_RS)} · response ${esc(r.RESP_CODE)} · payee ${esc(r.PAYEE_BANK)}<div class="subtle">Settlement ${fmt.dayLong(r.SETTLEMENT_DT)}, cycle ${fmt.n(r.CYCLE_NO)}</div></div>`).join("")
+        || `<div class="box">No NPCI record yet.${s.FILE_EXPECTED ? ` The settlement file for ${fmt.dayLong(s.FILE_SETTLEMENT_DT)} cycle ${fmt.n(s.FILE_CYCLE_NO)} was expected ${fmt.dt(s.FILE_EXPECTED)} and ${s.FILE_ARRIVED ? "arrived " + fmt.dt(s.FILE_ARRIVED) : "has not arrived"}.` : ""}</div>`;
+      const cb = t.cbs.map(r => `<div class="box"><b>${esc(r.DR_CR === "DR" ? (r.KIND === "DEBIT" ? "Debit" : "Debit · " + title(r.KIND)) : "Credit · " + title(r.KIND))}</b> · ${fmt.rs(r.AMOUNT_RS)}${r.MATCH_PASS ? ` · matched in pass ${fmt.n(r.MATCH_PASS)}` : ""}<div class="subtle">${fmt.dt(r.POST_TIME)} · <span class="mono">${esc(r.CBS_ENTRY_ID)}</span></div><div class="mono wrap" style="margin-top:4px">${esc(r.NARRATION)}</div></div>`).join("") || `<div class="box">No core-banking entry.</div>`;
+      body.innerHTML = `
+        <div class="row" style="flex-wrap:wrap">${e.CLASS ? classTag(e.CLASS) : pill("Reconciled", "brand")}${qr ? statePill(qr.TAT_STATE) : ""}${e.STATUS ? pill(title(e.STATUS), "neutral") : ""}${qr ? `<span class="muted">Queue rank ${fmt.n(qr.QUEUE_RANK)}</span>` : ""}</div>
+        <dl class="kv"><div><dt>Amount</dt><dd>${fmt.rs(s.AMOUNT_RS || e.AMOUNT_RS)}</dd></div><div><dt>Type</dt><dd>${esc(s.TXN_TYPE || e.TXN_TYPE || "–")}</dd></div>
+          <div><dt>Transaction time</dt><dd>${fmt.dt(s.TXN_TIME || e.TXN_TIME)}</dd></div><div><dt>RRN</dt><dd class="mono">${esc(s.RRN || e.RRN || "–")}</dd></div>
+          <div><dt>Payee bank</dt><dd>${esc(s.PAYEE_BANK || e.BANK || "–")}</dd></div><div><dt>Exception id</dt><dd class="mono">${esc(e.EXC_ID || "–")}</dd></div></dl>
+        ${pen ? `<div><p class="section-title">TAT clock</p><dl class="kv">
+          <div><dt>Rule</dt><dd>${esc(pen.CASE_NAME)} · T+${fmt.n(pen.TAT_DAYS)}</dd></div><div><dt>Deadline</dt><dd>${fmt.dayLong(pen.DEADLINE_DT)}</dd></div>
+          <div><dt>Days beyond TAT</dt><dd>${fmt.n(pen.PENALTY_DAYS)}</dd></div><div><dt>Accrued</dt><dd>${fmt.rs(pen.PENALTY_RS)}</dd></div>
+          <div><dt>Owed tomorrow</dt><dd>${fmt.rs(pen.OWED_TOMORROW_RS)}</dd></div><div><dt>Compensation</dt><dd>${esc(title(pen.COMP_STATUS))}${Number(pen.COMP_GAP_RS) > 0 ? ` · gap ${fmt.rs(pen.COMP_GAP_RS)}` : ""}</dd></div></dl></div>` : ""}
+        <div><p class="section-title">What each system recorded</p><div class="timeline">
+          <div class="tl"><span class="ic"><i data-lucide="arrow-left-right"></i></span><div><h5>Bank's UPI switch</h5>${sw}</div></div>
+          <div class="tl"><span class="ic"><i data-lucide="landmark"></i></span><div><h5>NPCI settlement</h5>${np}</div></div>
+          <div class="tl"><span class="ic"><i data-lucide="book-open"></i></span><div><h5>Core-banking ledger</h5>${cb}</div></div></div></div>
+        ${t.actions.length ? `<div><p class="section-title">Actions</p>${t.actions.map(a => `<div class="row between" style="padding:8px 0;border-bottom:1px solid var(--line-2)"><span>${esc(actionMeta(a.ACTION_TYPE).label)} · ${esc(a.CREATED_BY)}</span>${pill(title(a.STATUS), STATUS_TONE[a.STATUS] || "neutral")}</div>`).join("")}</div>` : ""}
+        ${act ? `<div class="row"><button class="btn primary" id="drawer-propose" type="button"><i data-lucide="${actionMeta(act).icon}"></i>${esc(actionMeta(act).cta)}</button><span class="muted">A named person approves it on the Actions page.</span></div>` : ""}`;
+      icons(body);
+      if ($("#drawer-propose")) $("#drawer-propose").addEventListener("click", async () => { if (await propose(act, [e.EXC_ID])) { openTxn(id); route(); } });
+    } catch (err) { body.innerHTML = `<div class="error-box">${esc(err.message)}</div>`; }
+  }
+  function closeDrawer() {
+    $("#drawer").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true"); $("#scrim").hidden = true;
+    const { page, params } = parseHash();
+    if (params.open) { delete params.open; history.replaceState(null, "", `#/${page}${Object.keys(params).length ? "?" + new URLSearchParams(params) : ""}`); }
+  }
+  $("#drawer-close").addEventListener("click", closeDrawer);
+  $("#scrim").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+
+  // ------------------------------------------------------------------ boot
+  who.render();
+  icons();
+  loadShell();
+  call("/api/overview").then(setContext).catch(() => { /* shown per page */ });
+  // pages build their menus from /api/meta (no database needed), so it loads before the first render
+  call("/api/meta").then(m => { state.meta = m; route(); })
+    .catch(e => { $("#app").innerHTML = `<div class="error-box">Cannot reach the TAT Guard server: ${esc(e.message)}</div>`; });
+})();
