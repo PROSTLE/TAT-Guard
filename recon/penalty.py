@@ -10,6 +10,7 @@ The SQL view RECON.PENALTY_EXPOSURE must agree with this module to the rupee (02
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import Optional
 
 try:
     from recon import rules
@@ -35,3 +36,8 @@ def exposure_next_24h(txn_date: date, today: date, case: str) -> int:
 def deadline(txn_date: date, case: str) -> date:
     """Last calendar day on which reversal is still within TAT (T + TAT)."""
     return txn_date + timedelta(days=rules.tat_days()[case])
+
+
+def is_breached(txn_date: date, as_of: date, case: str) -> bool:
+    """True if the TAT deadline has been exceeded."""
+    return penalty_days(txn_date, as_of, case) > 0
