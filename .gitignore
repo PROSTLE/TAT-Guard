@@ -41,3 +41,8 @@ desktop.ini
 # Coverage
 htmlcov/
 .coverage
+
+# Packaging build output
+build/
+dist/
+*.egg-info/

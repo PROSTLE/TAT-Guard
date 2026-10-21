@@ -10,10 +10,14 @@ setup(
     url="https://github.com/PROSTLE/TAT-Guard",
     packages=find_packages(exclude=["tests", "tests.*"]),
     python_requires=">=3.10",
+    # Lower bounds = versions verified in requirements.txt.
     install_requires=[
-        "pyexasol>=0.26",
-        "PyYAML>=6.0",
-        "python-dotenv>=1.0",
+        "pyexasol>=2.4.1",
+        "PyYAML>=6.0.3",
+        "numpy>=2.5.3",
+        "pyarrow>=25.0.1",
+        "pandas>=3.0.6",
+        "mcp>=2.3.0",
     ],
     extras_require={
         "agent": ["google-genai>=2.32"],
