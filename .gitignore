@@ -25,3 +25,19 @@ data/
 
 # runtime logs (MCP server stderr, UI server)
 logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Coverage
+htmlcov/
+.coverage
