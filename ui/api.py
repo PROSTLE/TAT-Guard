@@ -96,6 +96,9 @@ OVERVIEW_SQL = {
         FROM "RAW"."SWITCH_LOG" """,
     "as_of": """SELECT TO_CHAR(CAST("PARAM_VALUE" AS TIMESTAMP), 'YYYY-MM-DD HH24:MI') AS "AS_OF"
         FROM "RECON"."SETTINGS" WHERE "PARAM_NAME" = 'as_of'""",
+    "dataset": """SELECT MAX(CASE WHEN "PARAM_NAME" = 'dataset_name' THEN "PARAM_VALUE" END) AS "NAME",
+        MAX(CASE WHEN "PARAM_NAME" = 'dataset_source' THEN "PARAM_VALUE" END) AS "SOURCE"
+        FROM "RECON"."SETTINGS" """,
     "last_recon": """WITH r AS (SELECT "RUN_ID", MAX("FINISHED_TS") AS "T" FROM "RECON"."RUN_LOG" WHERE "STEP" LIKE 'recon %'
                              GROUP BY "RUN_ID" ORDER BY "T" DESC LIMIT 1)
         SELECT TO_CHAR(r."T", 'YYYY-MM-DD HH24:MI') AS "FINISHED", SUM(l."DURATION_MS") AS "DURATION_MS"
@@ -165,7 +168,12 @@ ORDER BY 1 DESC LIMIT {n!d}"""
 
 def overview(q) -> dict:
     out = {k: q(sql) for k, sql in OVERVIEW_SQL.items()}
-    return {"kpi": one(out["kpi"]), "volume": one(out["volume"]), "as_of": one(out["as_of"]).get("AS_OF"),
+    # a dataset with no debit-no-credit cases sums to NULL; that is zero owed, not an unknown amount
+    return {"kpi": {k: 0 if v is None else v for k, v in one(out["kpi"]).items()}, "volume": one(out["volume"]), "as_of": one(out["as_of"]).get("AS_OF"),
+            # data loaded before the import page has no name; pipeline.py only ever loaded synthetic manifests
+            "dataset": {"name": "No data loaded", "source": "none"} if not one(out["volume"]).get("TXNS") else
+                       {"name": one(out["dataset"]).get("NAME") or "Synthetic sample dataset",
+                        "source": one(out["dataset"]).get("SOURCE") or "sample"},
             "last_recon": one(out["last_recon"]).get("FINISHED"), "recon_ms": one(out["last_recon"]).get("DURATION_MS"),
             "classes": records(out["classes"]), "ageing": records(out["ageing"]), "banks": records(out["banks"]),
             "compensation": records(out["compensation"]), "missing_files": records(out["missing_files"]),

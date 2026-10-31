@@ -9,7 +9,7 @@ from agent.agent import ROUTES, SUGGESTIONS
 from ui import api, server
 
 APP_JS = (api.ROOT / "ui" / "static" / "app.js").read_text(encoding="utf-8")
-POST_ROUTES = {"/api/ask", "/api/propose", "/api/actions"}   # /api/actions/<id>/approve|reject, see Handler.do_POST
+POST_ROUTES = {"/api/ask", "/api/propose", "/api/actions", "/api/connect", "/api/import", "/api/upload"}   # see Handler.do_POST
 CSV_ROUTES = set(server.CSV_ROUTES)
 
 

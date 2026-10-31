@@ -4,7 +4,9 @@
 
 * Read endpoints use the read-only agent DB user (TATGUARD_AGENT_USER); their SQL lives in ui/api.py.
   The agent's own SQL goes through the official Exasol MCP server (agent/mcp_reader.py).
-* Only /api/propose and /api/actions/<id>/approve|reject write, through agent/actions.py on the admin connection.
+* /api/propose and /api/actions/<id>/approve|reject write through agent/actions.py on the admin connection.
+* /api/connect, /api/upload and /api/import are the Connect & Import page (ui/importer.py): they choose the database,
+  and replace the data in it through recon/pipeline.py. Pages cannot change data while an import runs.
 * Every number on the page comes from a live query; responses carry the measured query time (ms).
 * /api/meta serves the vocabulary the page builds menus from (states, sorts, page sizes, action types and statuses,
   sample questions, maker-checker setting), so app.js holds only labels and colours.
@@ -47,7 +49,7 @@ from agent import actions  # noqa: E402
 from agent.agent import SUGGESTIONS, Agent  # noqa: E402
 from agent.mcp_reader import McpReader  # noqa: E402
 from recon.pipeline import connect as admin_connect, host_label  # noqa: E402
-from ui import api  # noqa: E402
+from ui import api, importer  # noqa: E402
 
 HOST, PORT = "127.0.0.1", int(os.environ.get("TATGUARD_UI_PORT", "8765"))
 MAX_BODY = 64 * 1024
@@ -64,6 +66,13 @@ class Db:
 
     def __init__(self, factory):
         self.factory, self.C, self.lock = factory, None, threading.Lock()
+
+    def reset(self):
+        """Log out, so the next call opens a connection from the current environment."""
+        with self.lock:
+            if self.C is not None and not self.C.is_closed:
+                self.C.close()
+            self.C = None
 
     def run(self, fn):
         with self.lock:
@@ -98,6 +107,21 @@ def start_agent():
         AGENT["error"] = f"{type(e).__name__}: {e}"
 
 
+def switch_database():
+    """Called after the page picks another database: nothing may keep talking to the old one."""
+    READ.reset()
+    WRITE.reset()
+    old, AGENT["agent"], AGENT["error"] = AGENT["agent"], None, None
+    if old:
+        old.reader.close()
+    threading.Thread(target=start_agent, daemon=True, name="agent-start").start()
+
+
+def no_import_running():
+    if importer.running():
+        raise ValueError("An import is running. Wait for it to finish.")
+
+
 def q(sql: str, params: dict | None = None) -> dict:
     """Read query on the read-only connection; returns columns, rows (JSON-safe) and measured ms."""
     def run(C):
@@ -122,6 +146,7 @@ def api_health(_):
 
 
 def api_ask(body):
+    no_import_running()
     if AGENT["agent"] is None:
         return {"error": AGENT["error"] or "The assistant is starting (the MCP server takes a few seconds)."}, \
             HTTPStatus.SERVICE_UNAVAILABLE
@@ -135,6 +160,7 @@ def api_ask(body):
 
 
 def api_propose(body):
+    no_import_running()
     user = str(body.get("user") or "").strip()
     if not user:
         raise ValueError("Set your name (top right) before proposing an action.")
@@ -156,6 +182,7 @@ def api_propose(body):
 def api_decide(action_id, approve, body):
     if not ACTION_ID.match(action_id):
         raise ValueError("bad action id")
+    no_import_running()
     t0 = time.perf_counter()
     out = WRITE.run(lambda C: actions.decide(C, action_id, approve, body.get("user", "")))
     out["total_ms"] = round((time.perf_counter() - t0) * 1000)
@@ -182,6 +209,8 @@ GET_ROUTES = {
     "/api/runs": lambda a: api.runs(q),
     "/api/reports": lambda a: api.reports_list(),
     "/api/report": lambda a: api.report_text(a.get("name", "")),
+    "/api/connection": lambda a: importer.connection(),
+    "/api/imports": lambda a: importer.status(),
 }
 
 
@@ -261,10 +290,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self._foreign():
             return
-        if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
-            return self._send(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "Content-Type must be application/json"})
+        ctype = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
         u = urlparse(self.path)
         n = int(self.headers.get("Content-Length") or 0)
+        if u.path == "/api/upload" and ctype == "application/octet-stream":   # large file body; a cross-site form cannot send this type
+            args = first(parse_qs(u.query))
+            return self._guard(lambda: importer.save_upload(args.get("id", ""), args.get("file", ""), self.rfile, n))
+        if ctype != "application/json":
+            return self._send(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "Content-Type must be application/json"})
         if n > MAX_BODY:
             return self._send(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "body too large"})
         try:
@@ -274,6 +307,10 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": "JSON object expected"})
         m = re.fullmatch(r"/api/actions/([^/]+)/(approve|reject)", u.path)
+        if u.path == "/api/connect":
+            return self._guard(lambda: importer.connect_to(body, switch_database))
+        if u.path == "/api/import":
+            return self._guard(lambda: importer.start(body))
         if u.path == "/api/ask":
             return self._guard(lambda: api_ask(body))
         if u.path == "/api/propose":

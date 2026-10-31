@@ -22,6 +22,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import re
 import sys
 import time
 import uuid
@@ -43,13 +44,15 @@ LOADS = [  # (csv file, target table)
     ("settlement_file_log.csv", "RAW.SETTLEMENT_FILE_LOG"),
 ]
 IMPORT_PARAMS = {"skip": 1}
+STAGE = "TGSTAGE"   # new data proves itself here first, so a bad file cannot cost the data already loaded
+CRLF = bytes([13, 10])
 
 
-def connect(user: str | None = None, password: str | None = None) -> pyexasol.ExaConnection:
+def connect(user: str | None = None, password: str | None = None, dsn: str | None = None) -> pyexasol.ExaConnection:
     """Admin connection by default; pass user AND password for another user (e.g. the read-only agent user)."""
     if (user is None) != (password is None):
         raise ValueError("pass both user and password, or neither")   # never mix one user with another's password
-    kw = dict(dsn=os.environ["EXA_DSN"], user=os.environ["EXA_USER"] if user is None else user,
+    kw = dict(dsn=dsn or os.environ["EXA_DSN"], user=os.environ["EXA_USER"] if user is None else user,
               password=os.environ["EXA_PASSWORD"] if password is None else password, compression=True)
     if os.environ.get("EXA_ENCRYPTION", "1") == "0":
         kw["encryption"] = False
@@ -57,10 +60,12 @@ def connect(user: str | None = None, password: str | None = None) -> pyexasol.Ex
 
 
 class Timer:
-    def __init__(self, C, run_id: str, scale: str):
+    def __init__(self, C, run_id: str, scale: str, on_step=None):
         self.C, self.run_id, self.scale, self.rows = C, run_id, scale, []
+        self.on_step = on_step or (lambda *a: None)   # (name, state, ms, rows): the UI import shows progress with it
 
     def step(self, name: str, fn, count_sql: str | None = None):
+        self.on_step(name, "running")
         t0 = dt.datetime.now()
         p0 = time.perf_counter()
         fn()
@@ -68,6 +73,7 @@ class Timer:
         n = self.C.execute(count_sql).fetchval() if count_sql else None
         self.rows.append((self.run_id, name, t0, dt.datetime.now(), ms, n))
         print(f"  {name:<34} {ms:>9} ms   rows={n}")
+        self.on_step(name, "done", ms, n)
         return ms
 
     def flush(self):
@@ -100,7 +106,10 @@ def script(C, path: pathlib.Path):
 def load_settings(C, manifest: dict):
     cfg = yaml.safe_load(open(ROOT / "recon" / "config.yaml", encoding="utf-8"))
     m = cfg["matching"]
-    settings = {"as_of": manifest["as_of"].replace("T", " "), "pass2_window_s": m["pass2_window_s"],
+    # no stated cut-off: use the newest transaction in the data
+    as_of = manifest.get("as_of") or str(C.execute('SELECT MAX("TXN_TS") FROM "RAW"."SWITCH_LOG"').fetchval())[:19]
+    settings = {"as_of": as_of.replace("T", " "), "dataset_name": manifest.get("name", "Synthetic sample dataset"),
+                "dataset_source": manifest.get("source", "sample"), "pass2_window_s": m["pass2_window_s"],
                 "pass4_window_s": m["pass4_window_s"], "pass4_threshold": m["pass4_threshold"],
                 "ref_pattern": m["ref_pattern"], "rail": cfg["rail"],
                 **{f"pass4_w_{k}": v for k, v in m["pass4_weights"].items()}}
@@ -125,8 +134,7 @@ def load_settings(C, manifest: dict):
                            ("RECON", "NARRATION_KIND"))
 
 
-def cmd_load(C, T: Timer, data: pathlib.Path, reset_audit: bool = False):
-    manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+def prepare(C, T: Timer, manifest: dict, reset_audit: bool):
     if not manifest.get("synthetic"):
         raise SystemExit("refusing to load: manifest is not marked synthetic")
     T.step("schemas", lambda: script(C, SQL / "00_schemas.sql"))
@@ -134,10 +142,62 @@ def cmd_load(C, T: Timer, data: pathlib.Path, reset_audit: bool = False):
         for t in ("PROPOSED_ACTIONS", "ACTION_LOG"):
             C.execute(f'TRUNCATE TABLE "AUDIT"."{t}"')
         print("  AUDIT.PROPOSED_ACTIONS and AUDIT.ACTION_LOG truncated (--reset-audit)")
+
+
+def cmd_load(C, T: Timer, data: pathlib.Path, reset_audit: bool = False, manifest: dict | None = None):
+    manifest = manifest or json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    prepare(C, T, manifest, reset_audit)
     for fname, table in LOADS:
         schema, name = table.split(".")
         T.step(f"load {table}", lambda f=fname, s=schema, n=name: C.import_from_file(str(data / f), (s, n), IMPORT_PARAMS),
                f'SELECT COUNT(*) FROM "{schema}"."{name}"')
+    T.step("settings", lambda: load_settings(C, manifest))
+
+
+def csv_params(path: pathlib.Path) -> dict:
+    """IMPORT needs the file's line ending; Excel on Windows writes CRLF, the generator writes LF."""
+    with open(path, "rb") as fh:
+        return {**IMPORT_PARAMS, "row_separator": "CRLF" if fh.readline().endswith(CRLF) else "LF"}
+
+
+def stage(C, data: pathlib.Path | None = None, schema: str | None = None):
+    """Fill STAGE from CSV files or another schema, in RAW's exact types, and check what load_settings needs."""
+    C.execute(f'CREATE SCHEMA IF NOT EXISTS "{STAGE}"')
+    ddl = (SQL / "00_schemas.sql").read_text(encoding="utf-8")
+    for m in re.finditer(r"CREATE OR REPLACE TABLE RAW\.(\w+) (\(.*?\n\));", ddl, re.S):
+        C.execute(f'CREATE OR REPLACE TABLE "{STAGE}"."{m.group(1)}" {m.group(2)}')
+    for fname, table in LOADS:
+        n = table.split(".")[1]
+        if data is not None:
+            C.import_from_file(str(data / fname), (STAGE, n), csv_params(data / fname))
+        else:
+            cols = ", ".join(f'"{r[0]}"' for r in C.execute("SELECT COLUMN_NAME FROM EXA_ALL_COLUMNS WHERE COLUMN_SCHEMA = {s} AND "
+                                                            "COLUMN_TABLE = {n} ORDER BY COLUMN_ORDINAL_POSITION", {"s": STAGE, "n": n}).fetchall())
+            C.execute(f'INSERT INTO "{STAGE}"."{n}" ({cols}) SELECT {cols} FROM "{schema}"."{n}"')
+    for n in ("SWITCH_LOG", "NPCI_SETTLEMENT", "CBS_LEDGER"):
+        if not C.execute(f'SELECT COUNT(*) FROM "{STAGE}"."{n}"').fetchval():
+            raise SystemExit(f"{n} has no rows.")
+    rail = yaml.safe_load(open(ROOT / "recon" / "config.yaml", encoding="utf-8"))["rail"]
+    types = [r[0] for r in C.execute(f'SELECT DISTINCT "TXN_TYPE" FROM "{STAGE}"."NPCI_SETTLEMENT" WHERE "TXN_TYPE" IS NOT NULL').fetchall()]
+    if not types:
+        raise SystemExit("NPCI_SETTLEMENT has no TXN_TYPE values.")
+    for t in types:    # an unknown type stops here, while the loaded data is still intact
+        rules.case_for(t, rail)
+
+
+def drop_stage(C):
+    C.execute(f'DROP SCHEMA IF EXISTS "{STAGE}" CASCADE')
+
+
+def cmd_load_schema(C, T: Timer, schema: str, manifest: dict, reset_audit: bool = False):
+    """Copy the four tables from another schema in the same database. The caller checked that they exist."""
+    prepare(C, T, manifest, reset_audit)
+    for _, table in LOADS:
+        s, n = table.split(".")
+        cols = ", ".join(f'"{r[0]}"' for r in C.execute("SELECT COLUMN_NAME FROM EXA_ALL_COLUMNS WHERE COLUMN_SCHEMA = {s} AND "
+                                                        "COLUMN_TABLE = {n} ORDER BY COLUMN_ORDINAL_POSITION", {"s": s, "n": n}).fetchall())
+        T.step(f"load {table}", lambda s=s, n=n, cols=cols: C.execute(f'INSERT INTO "{s}"."{n}" ({cols}) SELECT {cols} FROM "{schema}"."{n}"'),
+               f'SELECT COUNT(*) FROM "{s}"."{n}"')
     T.step("settings", lambda: load_settings(C, manifest))
 
 
