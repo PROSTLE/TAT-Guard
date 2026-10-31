@@ -64,3 +64,27 @@ def test_action_templates_are_seen_by_matcher():
     # importing agent.actions runs _check_templates(); it raises if a narration would be invisible to recon
     from agent import actions
     assert set(actions.ACTION_TYPES) == {"POST_REVERSAL", "PAY_COMPENSATION", "CHASE_SETTLEMENT_FILE"}
+
+
+@pytest.mark.parametrize("text", ["Exposure is about fifty lakh rupees.", "Exposure is Rs 7 crore.", "Thousands of cases.",
+                                  "Exposure is 7k.", "Exposure is Rs 7 cr."])
+def test_spelled_out_and_shorthand_numbers_are_refused(text):
+    assert not check_answer(text, [[(966, "12345.00", 7, "2026-10-07")]])[0]
+
+
+def test_a_date_in_a_result_does_not_ground_its_digits_as_amounts():
+    results = [[("2026-10-07",)]]
+    assert check_answer("on 2026-10-07", results)[0]
+    assert not check_answer("Rs 2026 was lost", results)[0]
+    assert not check_answer("on 2026-10-08", results)[0]
+
+
+def test_a_timestamp_grounds_its_date_and_time():
+    results = [[("2026-10-07 18:00",)]]
+    assert check_answer("expected at 2026-10-07 18:00", results)[0]
+    assert check_answer("on 2026-10-07", results)[0]
+
+
+def test_known_limit_a_real_number_with_the_wrong_meaning_still_passes():
+    # documented in agent/grounding_guard.py: the guard proves a number occurs, not that the sentence uses it correctly
+    assert check_answer("966 customers complained", [[(966,)]])[0]

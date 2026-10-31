@@ -128,12 +128,12 @@ def classify(data: pathlib.Path) -> pd.DataFrame:
     moved = (dr >= 1) | (t["SW_STATUS"] == "SUCCESS")
     no_n = ns.isna()
     conds = [(ns == "SUCCESS") & (dr == 0),
-             dr >= 2,
              (dr >= 1) & (ns == "FAILED"),
+             dr >= 2,
              (dr == 1) & (ns == "SUCCESS") & (t["DR_AMT"] != t["AMOUNT_PAISE"]),
              no_n & t["F_ARR"].isna() & t["F_EXP"].notna() & (t["F_EXP"] <= as_of) & moved,
              no_n & t["F_ARR"].notna() & moved]
-    names = ["NPCI_SUCCESS_NO_CBS", "DUPLICATE_POSTING", "DEBIT_NO_CREDIT", "AMOUNT_MISMATCH", "LATE_FILE", "NPCI_MISSING"]
+    names = ["NPCI_SUCCESS_NO_CBS", "DEBIT_NO_CREDIT", "DUPLICATE_POSTING", "AMOUNT_MISMATCH", "LATE_FILE", "NPCI_MISSING"]
     t["CLASS"] = np.select(conds, names, default="")
     t.loc[t["CLASS"] == "", "CLASS"] = None
     out = t.loc[t["CLASS"].notna(), ["UPI_TXN_ID", "RRN", "CLASS"]].copy()

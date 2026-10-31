@@ -7,7 +7,7 @@
 * Only /api/propose and /api/actions/<id>/approve|reject write, through agent/actions.py on the admin connection.
 * Every number on the page comes from a live query; responses carry the measured query time (ms).
 * /api/meta serves the vocabulary the page builds menus from (states, sorts, page sizes, action types and statuses,
-  sample questions), so app.js holds only labels and colours.
+  sample questions, maker-checker setting), so app.js holds only labels and colours.
 * Binds to 127.0.0.1 only. There is no login: the approver types a name, which goes into the audit log. That is
   a demo limitation, documented in README "Limitations".
 """
@@ -146,7 +146,7 @@ def api_propose(body):
         try:
             r = WRITE.run(lambda C, t=t: actions.propose(C, body.get("action_type", ""), str(t),
                                                          body.get("rationale") or "Proposed from the work queue", "",
-                                                         created_by="analyst:" + user[:80]))
+                                                         created_by=actions.ANALYST_PREFIX + user[:80]))
             results.append({"target_ref": t, **r})
         except actions.ActionError as e:
             results.append({"target_ref": t, "error": str(e)})
@@ -182,6 +182,12 @@ GET_ROUTES = {
     "/api/runs": lambda a: api.runs(q),
     "/api/reports": lambda a: api.reports_list(),
     "/api/report": lambda a: api.report_text(a.get("name", "")),
+}
+
+
+CSV_ROUTES = {
+    "/api/queue.csv": (lambda a: api.queue_csv(q, a), "tatguard_work_queue.csv"),
+    "/api/compensation.csv": (lambda a: api.compensation_csv(q), "tatguard_compensation_register.csv"),
 }
 
 
@@ -240,13 +246,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(HTTPStatus.OK, (ROOT / "ui" / "index.html").read_bytes(), "text/html; charset=utf-8")
         if u.path.startswith("/static/"):
             return self._static(u.path[len("/static/"):])
-        if u.path == "/api/queue.csv":
+        if u.path in CSV_ROUTES:
+            fn, filename = CSV_ROUTES[u.path]
             try:
-                body = api.queue_csv(q, args)
+                body = fn(args)
             except ValueError as e:
                 return self._send(HTTPStatus.BAD_REQUEST, {"error": str(e)})
             return self._send(HTTPStatus.OK, body, "text/csv; charset=utf-8",
-                              {"Content-Disposition": 'attachment; filename="tatguard_work_queue.csv"'})
+                              {"Content-Disposition": f'attachment; filename="{filename}"'})
         if u.path in GET_ROUTES:
             return self._guard(lambda: GET_ROUTES[u.path](args))
         self._send(HTTPStatus.NOT_FOUND, {"error": "not found"})

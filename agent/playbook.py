@@ -56,7 +56,8 @@ FROM "RECON"."PENALTY_EXPOSURE" WHERE "STATUS" = 'OPEN'"""
 
 TOP_QUEUE_SQL = """SELECT "QUEUE_RANK", "EXC_ID", "CLASS", "TXN_TYPE", "TXN_DT", "DEADLINE_DT",
        CAST("AMOUNT_PAISE" / 100 AS DECIMAL(18,2)) AS "AMOUNT_RS",
-       CAST("EXPOSURE_NEXT_24H_PAISE" / 100 AS DECIMAL(18,2)) AS "EXPOSURE_NEXT_24H_RS", "ACTION_NEEDED"
+       CAST("EXPOSURE_NEXT_24H_PAISE" / 100 AS DECIMAL(18,2)) AS "EXPOSURE_NEXT_24H_RS",
+       CAST("NEW_ACCRUAL_24H_PAISE" / 100 AS DECIMAL(18,2)) AS "NEW_ACCRUAL_RS", "ACTION_NEEDED"
 FROM "RECON"."WORK_QUEUE" ORDER BY "QUEUE_RANK" LIMIT 5"""
 
 COMP_SQL = """SELECT "COMP_STATUS", COUNT(*) AS "CASES", CAST(SUM("COMP_GAP_PAISE") / 100 AS DECIMAL(18,2)) AS "GAP_RS"
@@ -143,9 +144,12 @@ def exposure(query) -> dict:
     if top and top[0]["CLASS"] == "DEBIT_NO_CREDIT" and top[0]["ACTION_NEEDED"] == "RESOLVE_DEBIT_NO_CREDIT":
         q = top[0]
         text += (f" Highest-ranked item: {q['EXC_ID']} ({q['TXN_TYPE']}, Rs {_fmt(q['AMOUNT_RS'])}, transaction date "
-                 f"{q['TXN_DT']}, TAT deadline {q['DEADLINE_DT']}), Rs {_fmt(q['EXPOSURE_NEXT_24H_RS'])} owed tomorrow.")
+                 f"{q['TXN_DT']}, TAT deadline {q['DEADLINE_DT']}). Reversing it avoids Rs {_fmt(q['NEW_ACCRUAL_RS'])} tomorrow, "
+                 f"the same as any accruing case; it ranks first because it has waited longest "
+                 f"(Rs {_fmt(q['EXPOSURE_NEXT_24H_RS'])} owed tomorrow in total).")
         proposal = {"action_type": "POST_REVERSAL", "target_ref": q["EXC_ID"],
-                    "rationale": f"Rank 1 in the work queue; Rs {_fmt(q['EXPOSURE_NEXT_24H_RS'])} owed tomorrow if not reversed."}
+                    "rationale": f"Rank 1 in the work queue: adds Rs {_fmt(q['NEW_ACCRUAL_RS'])} tomorrow if not reversed, "
+                                 f"Rs {_fmt(q['EXPOSURE_NEXT_24H_RS'])} owed in total."}
     return {"text": text, "results": results, "proposal": proposal}
 
 

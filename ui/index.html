@@ -4,11 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TAT Guard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+<a class="skip-link" href="#app">Skip to content</a>
 <header class="topbar">
   <a class="brand" href="#/dashboard" aria-label="TAT Guard home">
     <span class="brand-mark"><i data-lucide="shield-check"></i></span>
@@ -28,7 +27,7 @@
     <div class="conn" id="conn" title="Database connection"><i data-lucide="server"></i><span>Connecting…</span></div>
     <a class="icon-btn bell" href="#/actions" id="bell" aria-label="Pending approvals"><i data-lucide="bell"></i><em class="count" id="bell-count" hidden></em></a>
     <div class="who">
-      <button class="who-btn" id="who-btn" type="button" aria-haspopup="dialog"><span class="avatar" id="who-avatar"><i data-lucide="user-round"></i></span><span class="who-text"><b id="who-name">Set your name</b><small>Approver</small></span><i data-lucide="chevron-down"></i></button>
+      <button class="who-btn" id="who-btn" type="button" aria-haspopup="dialog"><span class="avatar" id="who-avatar"><i data-lucide="user-round"></i></span><span class="who-text"><b id="who-name">Set your name</b><small>Acting as</small></span><i data-lucide="chevron-down"></i></button>
       <div class="popover" id="who-pop" hidden>
         <label for="who-input">Your name, as written to the audit log</label>
         <input id="who-input" maxlength="80" placeholder="e.g. Priya, Operations" autocomplete="name">
@@ -47,9 +46,10 @@
   </div>
 </div>
 
+<div class="offline" id="offline" role="alert" hidden><i data-lucide="server-off"></i><span><b>The database is not reachable.</b> Figures below may be missing. Start it with <span class="mono">podman machine start</span>, then <span class="mono">exasol start</span>, and press Refresh.</span></div>
 <main id="app" class="page" tabindex="-1"></main>
 
-<aside class="drawer" id="drawer" aria-hidden="true">
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" aria-hidden="true">
   <div class="drawer-head">
     <div><p class="eyebrow">Transaction</p><h2 id="drawer-title">…</h2></div>
     <button class="icon-btn" id="drawer-close" type="button" aria-label="Close"><i data-lucide="x"></i></button>

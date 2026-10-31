@@ -9,7 +9,7 @@ setup(
     author_email="harshitaryan21@gmail.com",
     url="https://github.com/PROSTLE/TAT-Guard",
     packages=find_packages(exclude=["tests", "tests.*"]),
-    python_requires=">=3.10",
+    python_requires=">=3.12",
     # Lower bounds = versions verified in requirements.txt.
     install_requires=[
         "pyexasol>=2.4.1",

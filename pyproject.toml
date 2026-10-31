@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "UPI TAT reconciliation and penalty tracking on Exasol"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     {name = "Harshit Aryan", email = "harshitaryan21@gmail.com"},
 ]
@@ -19,5 +19,5 @@ dynamic = ["dependencies", "optional-dependencies", "scripts"]
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 120

@@ -7,7 +7,7 @@ CREATE OR REPLACE VIEW RECON.PENALTY_EXPOSURE AS
 WITH a AS (SELECT CAST(CAST("PARAM_VALUE" AS TIMESTAMP) AS DATE) AS "AS_OF_DT" FROM "RECON"."SETTINGS" WHERE "PARAM_NAME" = 'as_of'),
 b AS (
   SELECT e."EXC_ID", e."UPI_TXN_ID", e."RRN", e."TXN_TYPE", e."BANK", e."TXN_DT", e."AMOUNT_PAISE", e."STATUS",
-         e."REVERSAL_DT", e."COMP_PAISE", r."CASE_NAME", r."TAT_DAYS", r."PAISE_PER_DAY",
+         e."REVERSAL_DT", e."COMP_PAISE", e."DEBIT_TOTAL_PAISE", e."REVERSED_PAISE", r."CASE_NAME", r."TAT_DAYS", r."PAISE_PER_DAY",
          ADD_DAYS(e."TXN_DT", r."TAT_DAYS") AS "DEADLINE_DT", a."AS_OF_DT",
          COALESCE(e."REVERSAL_DT", a."AS_OF_DT") AS "END_DT"
   FROM "RECON"."EXCEPTIONS" e
@@ -17,6 +17,7 @@ b AS (
 ),
 d AS (
   SELECT b.*,
+         DAYS_BETWEEN(b."DEADLINE_DT", b."AS_OF_DT") AS "DAYS_TO_DEADLINE",   -- negative = past the deadline
          GREATEST(0, DAYS_BETWEEN(b."END_DT", b."TXN_DT") - b."TAT_DAYS") AS "PENALTY_DAYS",
          CASE WHEN b."STATUS" = 'OPEN'
               THEN GREATEST(0, DAYS_BETWEEN(ADD_DAYS(b."AS_OF_DT", 1), b."TXN_DT") - b."TAT_DAYS")
@@ -36,8 +37,11 @@ SELECT d.*,
        GREATEST(0, d."PENALTY_DAYS" * d."PAISE_PER_DAY" - d."COMP_PAISE") AS "COMP_GAP_PAISE"
 FROM d;
 
--- Work queue: open exceptions, plus reversed cases whose suo-moto compensation is missing/short,
--- ranked by Rs exposure in the next 24 h, then amount (01 §Phase 3).
+-- Work queue: open exceptions, plus reversed cases whose suo-moto compensation is missing/short.
+-- Ranking (DESIGN): compensation is a flat rate per day, not a share of the amount, so what has already accrued is a sunk
+-- cost and reversing any accruing case avoids the same Rs tomorrow. So rank by what a case ADDS tomorrow, then compensation
+-- already owed, then cases still on the clock, then cases with no clock. Ties go to the customer who has waited longest
+-- (most days past TAT, then earliest deadline), then the larger amount.
 -- TAT_STATE (DESIGN, for the UI): OVERDUE = open and accruing; AT_RISK = open, starts accruing by tomorrow;
 -- WITHIN_TAT = open, before its deadline; COMPENSATION_DUE = reversed, compensation missing/short;
 -- NO_TAT_CLOCK = a break class the RBI TAT rule does not price (only DEBIT_NO_CREDIT has a penalty row).
@@ -50,10 +54,14 @@ SELECT e."EXC_ID", e."CLASS", e."UPI_TXN_ID", e."RRN", e."CBS_ENTRY_ID", e."TXN_
             WHEN p."PENALTY_DAYS_NEXT_24H" > 0 THEN 'AT_RISK'
             ELSE 'WITHIN_TAT' END AS "TAT_STATE",
        CASE WHEN e."STATUS" = 'OPEN' THEN 'RESOLVE_' || e."CLASS" ELSE 'PAY_COMPENSATION' END AS "ACTION_NEEDED",
-       p."COMP_GAP_PAISE",
+       p."COMP_GAP_PAISE", p."DAYS_TO_DEADLINE", p."PENALTY_DAYS",
        p."DEADLINE_DT", p."PENALTY_PAISE", COALESCE(p."EXPOSURE_NEXT_24H_PAISE", 0) AS "EXPOSURE_NEXT_24H_PAISE",
        COALESCE(p."NEW_ACCRUAL_24H_PAISE", 0) AS "NEW_ACCRUAL_24H_PAISE", p."COMP_STATUS",
-       ROW_NUMBER() OVER (ORDER BY COALESCE(p."EXPOSURE_NEXT_24H_PAISE", 0) DESC, e."AMOUNT_PAISE" DESC, e."EXC_ID") AS "QUEUE_RANK"
+       ROW_NUMBER() OVER (ORDER BY COALESCE(p."NEW_ACCRUAL_24H_PAISE", 0) DESC,
+                                   CASE WHEN p."COMP_STATUS" IN ('MISSING', 'UNDERPAID') THEN 0
+                                        WHEN p."EXC_ID" IS NOT NULL THEN 1 ELSE 2 END,
+                                   COALESCE(p."PENALTY_DAYS", 0) DESC, p."DEADLINE_DT" ASC NULLS LAST,
+                                   e."AMOUNT_PAISE" DESC, e."EXC_ID") AS "QUEUE_RANK"
 FROM "RECON"."EXCEPTIONS" e
 LEFT JOIN "RECON"."PENALTY_EXPOSURE" p ON p."EXC_ID" = e."EXC_ID"
 WHERE e."STATUS" = 'OPEN' OR p."COMP_STATUS" IN ('MISSING', 'UNDERPAID');

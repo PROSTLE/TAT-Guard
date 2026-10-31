@@ -15,15 +15,15 @@ ExaThon India 2026, Track 01. Reconciliation on Exasol Personal. All data shown 
 ## 3. The problem
 Bank reconciliation teams can't see which failed UPI debits are about to start costing money, because the evidence
 is split across the NPCI settlement file, the UPI switch log and the core-banking ledger, and has to be matched
-transaction by transaction. If this worked, they would see every stuck rupee ranked by what it costs tomorrow, fix
-the costliest first, and show that compensation was paid.
+transaction by transaction. If this worked, they would see every stuck rupee on a clock, stop the cases that add cost
+tomorrow first, and show that compensation was paid.
 
 ## 4. What TAT Guard does
 1. Reconciles the three sources inside Exasol: SQL joins, a Python UDF that reads references out of messy narrations, fuzzy matching.
-2. Puts every debit-no-credit on the TAT clock and ranks the queue by rupees owed tomorrow.
+2. Puts every debit-no-credit on the TAT clock. Compensation is a flat daily rate, so every accruing case costs the same to leave open: the queue ranks what a case adds tomorrow, then the longest wait.
 3. Checks suo-moto compensation: paid, underpaid or missing.
 4. Explains spikes: an agent runs read-only SQL through the official Exasol MCP server and shows every query.
-5. Fixes only with a human: the agent proposes, a named person approves, everything is audited.
+5. Fixes only with a human: the agent proposes, a second named person approves, everything is audited.
 
 ## 5. Architecture
 Synthetic generator → RAW tables → four matching passes + Python UDF → EXCEPTIONS → PENALTY_EXPOSURE / WORK_QUEUE
@@ -34,17 +34,19 @@ fixed SQL templates → recon re-run → ACTION_LOG.
 - The whole reconciliation is SQL plus an in-database Python UDF: data never leaves the database.
 - Exasol Personal runs locally (Windows, Podman) with the official launcher; a Python script-language container enables the UDF.
 - The agent uses Exasol's own MCP server, locked to SELECT and a read-only user.
+- Same 1M reconciliation on one laptop: Exasol 40.5 s, plus 16.8 s to bulk load; an untuned pandas version 1,020.4 s. Same exceptions [MEASURED].
 
 ## 7. Results (synthetic data, measured on our runs)
 - 1M transactions: precision 1.0 and recall 1.0 for every break class; 46,618 exceptions identical in Exasol and in an independent pandas re-implementation [MEASURED].
 - 10M transactions: overall precision 469,007 / 469,024; 3 wrong fuzzy matches and 7 ambiguous debits sent to a human [MEASURED].
 - Penalty view equals the Python reference to the rupee: 966 cases at 1M and 9,409 at 10M, 0 differences [MEASURED].
-- Recon time on a laptop: 16.9 s to 37.9 s at 1M (four runs) and 274 s at 10M [MEASURED]. Local preset only; no server hardware was measured.
+- Recon time on a laptop: 39.2 s to 40.8 s at 1M (three runs, 31 Oct) and 274 s at 10M, measured before the 31 Oct SQL changes [MEASURED]. Local preset only; no server hardware was measured.
+- 14 of 14 edge cases the generator never makes pass through the real SQL: partial reversals, double debits, ranking [MEASURED].
 
 ## 8. An agent you can trust with a bank's data
 - Read-only twice: the MCP server allows SELECT only, and the DB user has SELECT-only privileges.
-- Every number in an answer must appear in that turn's query results; otherwise the raw results are shown.
-- The agent can only propose. Approval needs a named human; the executed SQL and before/after values are logged.
+- Every number in an answer must appear in that turn's query results; otherwise the raw results are shown. Every query is on screen, because the check proves a number occurs, not what it means.
+- The agent can only propose. Approval needs a named human, and nobody can approve their own proposal; the executed SQL and before/after values are logged.
 - Verified: 8 of 9 safety checks pass; the 9th (Gemini mode) is blocked because no API key was available [MEASURED].
 
 ## 9. Demo
@@ -58,7 +60,8 @@ compensation would be about ₹4.0 lakh a day, or ₹14.6 crore a year [ASSUMPTI
 ## 11. Limits and next steps
 - Synthetic stand-in formats; real NPCI/CBS layouts are not public.
 - Gemini mode written but not run; UI has no login; executed actions simulate the CBS posting.
+- No Deemed/TCC/RET lifecycle yet. Who receives compensation is a stated assumption [RBI-TAT-PAYEE].
 - Next: cloud-preset benchmarks, real authentication, chargeback handling under NPCI's auto-acceptance rule [NPCI-OC213].
 
 ## 12. Thank you
-Open source (MIT). Repository link: (add the public GitHub URL here before export).
+Open source (MIT). Repository: https://github.com/PROSTLE/TAT-Guard

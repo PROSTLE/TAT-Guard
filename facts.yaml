@@ -19,15 +19,17 @@ facts:
     url: https://www.exasol.com/events/exathon-india-2026/
     status: verified
   - id: EVT-SUBMIT
-    value: "2026-10-25T23:59+05:30"
+    value: "2026-10-31T23:59+05:30"
     url: https://www.exasol.com/events/exathon-india-2026/
     status: verified
   - id: EVT-FINAL
-    value: "2026-10-30T18:00+05:30"
+    value: "2026-11-04T18:00+05:30"
+    note: "Top 5 announced; re-read from the event page 2026-10-31"
     url: https://www.exasol.com/events/exathon-india-2026/
     status: verified
   - id: EVT-DEMO
-    value: "2026-11-04T10:00+05:30"
+    value: "2026-11-06T10:00+05:30"
+    note: "re-read from the event page 2026-10-31; virtual, top 5 teams, 15 min presentation plus 5 min Q&A"
     url: https://www.exasol.com/events/exathon-india-2026/
     status: verified
   - id: EVT-DELIVERABLES
@@ -124,6 +126,12 @@ facts:
     quote: "R is the day on which the reversal is concluded and the funds are received by the issuer / originator."
     url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
     status: verified
+  - id: RBI-TAT-PAYEE
+    claim: "For a credit-push transfer the circular's general principle pays the penalty to the beneficiary; for a delay at the originator bank, to the originator. The UPI P2P annex row names the beneficiary bank for auto-reversal."
+    quote: "credit is to be effected within the prescribed time period failing which the penalty has to be paid to the beneficiary"
+    url: https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=11693
+    status: verified
+    note: "read from the saved copy refs/RBI-TAT.html on 2026-10-31. TAT Guard credits the debited account: a stated DESIGN assumption, see README Limitations"
   - id: RBI-TAT-STILL-IN-FORCE
     claim: "Circular not superseded as of submission date"
     status: VERIFY
@@ -133,6 +141,11 @@ facts:
       failed transactions. (3) RBI consolidated about 9,000 circulars into Master Directions in Nov 2025
       (secondary: https://www.newsonair.gov.in/rbi-repeals-9000-circulars-consolidates-rules-into-244-master-directions-to-ease-compliance/).
       The repeal annexes were NOT checked for DPSS.CO.PD No.629. Status stays VERIFY until they are.
+      Re-checked 2026-10-31. (4) The circular's Master Directions page still shows no amendment or withdrawal.
+      (5) RBI press release dated July 2025 penalised a cooperative bank partly for not compensating failed IMPS/UPI
+      transactions, so the rule was being enforced then: https://website.rbi.org.in/documents/d/rbi/pr732202526
+      (6) Reports describe the Nov 2025 exercise as Department of Regulation only; none says DPSS circulars were in it.
+      That is an inference, so the status stays VERIFY. Say "no withdrawal found", never "confirmed in force".
 
   - id: UPI-SEP26
     value: {monthly_txns_bn: 24.07, value_lakh_crore: 29.37, daily_avg_txns: 802000000, daily_avg_value_crore: 97913, yoy_volume_pct: 23, yoy_value_pct: 18}

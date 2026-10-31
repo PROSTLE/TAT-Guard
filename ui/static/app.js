@@ -84,7 +84,7 @@
   };
   const classMeta = c => CLASS_META[c] || { label: title(c), color: "#98A2B3" };
   const STATE_META = {
-    OVERDUE: { label: "Overdue", tone: "danger" }, AT_RISK: { label: "At risk", tone: "warn" },
+    OVERDUE: { label: "Overdue", tone: "danger" }, AT_RISK: { label: "Due today", tone: "warn" },
     WITHIN_TAT: { label: "Within TAT", tone: "info" }, COMPENSATION_DUE: { label: "Compensation due", tone: "violet" },
     NO_TAT_CLOCK: { label: "No TAT clock", tone: "neutral" },
   };
@@ -96,10 +96,17 @@
   const actionMeta = a => ACTION_META[a] || { label: title(a), icon: "clipboard-check", cta: "Propose " + title(a).toLowerCase() };
   const STATUS_TONE = { PROPOSED: "warn", APPROVED: "info", EXECUTED: "brand", LOGGED: "brand", REJECTED: "neutral", FAILED: "danger" };
   const STATUS_TAB = { PROPOSED: "Waiting for approval" };
+  const COMP_META = { PAID: { label: "Paid in full", tone: "brand" }, UNDERPAID: { label: "Underpaid", tone: "warn" }, MISSING: { label: "Not paid", tone: "danger" },
+    ACCRUING: { label: "Still accruing", tone: "info" }, NOT_DUE: { label: "Not due", tone: "neutral" } };
+  const FOCUS_LABEL = { accruing: "Adding cost tomorrow" };
   const SORT_LABEL = { rank: "priority", owed: "owed tomorrow", amount: "amount", time: "most recent", deadline: "earliest deadline" };
   const pill = (text, tone) => `<span class="pill ${tone}">${esc(text)}</span>`;
   const statePill = s => s ? pill((STATE_META[s] || { label: title(s) }).label, (STATE_META[s] || { tone: "neutral" }).tone) : "";
   const classTag = c => `<span class="cls"><i style="background:${classMeta(c).color}"></i>${esc(classMeta(c).label)}</span>`;
+  const plural = (n, one, many) => `${fmt.n(n)} ${Number(n) === 1 ? one : (many || one + "s")}`;
+  // days from the cut-off to the deadline, computed in SQL (negative = past it)
+  const clockText = d => { if (!isNum(d)) return ""; const n = Number(d); return n < 0 ? `${plural(-n, "day")} overdue` : n === 0 ? "Due today" : `${plural(n, "day")} left`; };
+  const errorBox = msg => `<div class="error-box"><div>${esc(msg)}</div><button class="btn sm" type="button" data-retry><i data-lucide="refresh-cw"></i>Try again</button></div>`;
   const sizeOptions = (cur) => state.meta.page_sizes.map(n => `<option ${n === cur ? "selected" : ""}>${n}</option>`).join("");
 
   // ------------------------------------------------------------------ approver identity (typed name, written to the audit log)
@@ -121,7 +128,7 @@
     },
   };
   $("#who-btn").addEventListener("click", () => { const p = $("#who-pop"); p.hidden = !p.hidden; if (!p.hidden) { $("#who-input").value = who.get(); $("#who-input").focus(); } });
-  $("#who-save").addEventListener("click", () => { who.set($("#who-input").value.trim().slice(0, 80)); $("#who-pop").hidden = true; });
+  $("#who-save").addEventListener("click", () => { who.set($("#who-input").value.trim().slice(0, 80)); $("#who-pop").hidden = true; if (parseHash().page === "actions") route(); });
   $("#who-input").addEventListener("keydown", e => { if (e.key === "Enter") $("#who-save").click(); });
   document.addEventListener("click", e => { if (!e.target.closest(".who")) $("#who-pop").hidden = true; });
 
@@ -135,7 +142,9 @@
       c.title = `Exasol ${h.version} at ${h.host} · ${h.host_label} · read query ${h.ms} ms · assistant: ${h.agent_ready ? h.agent_mode : (h.agent_error || "starting")}`;
       icons(c);
       state.health = h;
+      $("#offline").hidden = true;
     } catch (e) {
+      $("#offline").hidden = false;
       $("#conn").classList.add("bad");
       $("#conn").innerHTML = `<i data-lucide="server-off"></i><span>Database unreachable</span>`;
       icons($("#conn"));
@@ -151,7 +160,8 @@
   }
   function setContext(o) {
     $("#ctx-window span").textContent = `Transactions ${fmt.day(o.volume.FIRST_DT)} – ${fmt.dayLong(o.volume.LAST_DT)} · cut-off ${fmt.dt(o.as_of)}`;
-    $("#ctx-run span").textContent = o.last_recon ? `Last reconciliation ${fmt.dt(o.last_recon)}` : "No reconciliation run logged";
+    const took = isNum(o.recon_ms) ? ` · took ${fmt.n(Math.round(Number(o.recon_ms) / 100) / 10)} s` : "";
+    $("#ctx-run span").textContent = o.last_recon ? `Last reconciliation ${fmt.dt(o.last_recon)}${took}` : "No reconciliation run logged";
     setPending(o.pending);
   }
 
@@ -171,13 +181,18 @@
     if (!state.meta) return;   // boot calls route() once /api/meta has loaded
     const { page, params } = parseHash();
     const render = PAGES[page] || PAGES.dashboard;
-    $$("#nav a").forEach(a => a.classList.toggle("active", a.dataset.page === (PAGES[page] ? page : "dashboard")));
+    $$("#nav a").forEach(a => {
+      const on = a.dataset.page === (PAGES[page] ? page : "dashboard");
+      a.classList.toggle("active", on);
+      if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
     const app = $("#app");
-    app.innerHTML = `<div class="loading">Loading…</div>`;
+    app.innerHTML = `<div class="skeleton" role="status" aria-label="Loading"><i></i><i></i><i></i></div>`;
     try {
       await render(app, params);
     } catch (e) {
-      app.innerHTML = `<div class="error-box">${esc(e.message)}</div>`;
+      app.innerHTML = errorBox(e.message);
+      $("[data-retry]", app).addEventListener("click", () => { loadShell(); route(); });
     }
     icons(app);
     if (params.open) openTxn(params.open);
@@ -276,19 +291,24 @@
     const actionCell = r.PENDING_ACTION_ID
       ? `<a class="pill warn" href="#/actions?status=PROPOSED" title="${esc(r.PENDING_ACTION_ID)}">Awaiting approval</a>`
       : (act ? `<button class="btn sm" data-propose="${esc(act)}" data-ref="${esc(r.EXC_ID)}" type="button"><i data-lucide="${actionMeta(act).icon}"></i>${esc(actionMeta(act).cta)}</button>` : `<span class="subtle">–</span>`);
-    return `<tr class="clickable" data-open="${esc(r.EXC_ID)}">
+    const days = Number(r.DAYS_TO_DEADLINE);
+    const clock = r.TAT_STATE === "COMPENSATION_DUE" ? `${fmt.rs(r.COMP_GAP_RS)} still owed`
+      : r.TAT_STATE === "OVERDUE" ? `${plural(-days, "day")} past ${fmt.day(r.DEADLINE_DT)}`
+      : r.TAT_STATE === "AT_RISK" ? `Reverse by ${fmt.day(r.DEADLINE_DT)}` : clockText(r.DAYS_TO_DEADLINE);
+    return `<tr class="clickable" data-open="${esc(r.EXC_ID)}" tabindex="0" aria-label="Open case ${esc(r.UPI_TXN_ID || r.EXC_ID)}">
       ${opts.select ? `<td onclick="event.stopPropagation()"><input type="checkbox" data-sel="${esc(r.EXC_ID)}" data-kind="${esc(act || "")}" ${act && !r.PENDING_ACTION_ID ? "" : "disabled"} ${state.selected.has(r.EXC_ID) ? "checked" : ""} aria-label="Select ${esc(r.EXC_ID)}"></td>` : ""}
       <td class="n">${fmt.n(r.QUEUE_RANK)}</td>
       <td><div class="mono">${esc(r.UPI_TXN_ID || r.EXC_ID)}</div><div class="subtle" style="font-size:12px">${fmt.dt(r.TXN_TIME)}${r.RRN ? " · RRN " + esc(r.RRN) : ""}</div></td>
       <td>${esc(r.TXN_TYPE || "–")}</td>
       <td class="n">${fmt.rs(r.AMOUNT_RS)}</td>
       <td>${classTag(r.CLASS)}</td>
-      <td>${statePill(r.TAT_STATE)}${r.DEADLINE_DT ? `<div class="subtle" style="font-size:12px;margin-top:3px">deadline ${fmt.day(r.DEADLINE_DT)}</div>` : ""}</td>
-      <td class="n"><b>${fmt.rs(r.OWED_TOMORROW_RS)}</b>${Number(r.NEW_ACCRUAL_RS) > 0 ? `<div class="c-danger" style="font-size:12px">+${fmt.rs(r.NEW_ACCRUAL_RS)} by tomorrow</div>` : ""}</td>
+      <td>${statePill(r.TAT_STATE)}${clock ? `<div class="subtle" style="font-size:12px;margin-top:3px;white-space:nowrap">${esc(clock)}</div>` : ""}</td>
+      <td class="n">${Number(r.NEW_ACCRUAL_RS) > 0 ? `<b class="c-danger">+${fmt.rs(r.NEW_ACCRUAL_RS)}</b>` : `<span class="subtle">–</span>`}</td>
+      <td class="n">${Number(r.ACCRUED_RS) > 0 ? fmt.rs(r.ACCRUED_RS) : `<span class="subtle">–</span>`}</td>
       <td onclick="event.stopPropagation()">${actionCell}</td></tr>`;
   }
   const queueHeader = (select) => `<thead><tr>${select ? `<th style="width:34px"><input type="checkbox" id="sel-all" aria-label="Select all eligible rows"></th>` : ""}
-      <th class="n">#</th><th>Transaction</th><th>Type</th><th class="n">Amount</th><th>Break type</th><th>TAT state</th><th class="n">Owed tomorrow</th><th>Action</th></tr></thead>`;
+      <th class="n">#</th><th>Transaction</th><th>Type</th><th class="n">Amount</th><th>Break type</th><th>Clock</th><th class="n" title="What this case adds to the compensation bill by tomorrow if it stays open">Adds tomorrow</th><th class="n">Accrued so far</th><th>Action</th></tr></thead>`;
 
   async function propose(kind, refs) {
     const user = who.require();
@@ -296,7 +316,7 @@
     try {
       const r = await call("/api/propose", { action_type: kind, targets: refs, user });
       const ok = r.results.filter(x => !x.error), bad = r.results.filter(x => x.error);
-      if (ok.length) toast(`${ok.length} ${ok.length === 1 ? "proposal" : "proposals"} waiting for approval on the Actions page.`);
+      if (ok.length) toast(`${ok.length} ${ok.length === 1 ? "proposal" : "proposals"} waiting for approval. <a href="#/actions?status=PROPOSED">Review on Actions</a>`);
       if (bad.length) toast(esc(bad[0].error) + (bad.length > 1 ? ` (+${bad.length - 1} more)` : ""), true);
       loadShell(); refreshPending();
       return true;
@@ -307,7 +327,10 @@
   }
 
   function bindRowClicks(root) {
-    $$("tr[data-open]", root).forEach(tr => tr.addEventListener("click", () => openTxn(tr.dataset.open)));
+    $$("tr[data-open]", root).forEach(tr => {
+      tr.addEventListener("click", () => openTxn(tr.dataset.open));
+      tr.addEventListener("keydown", e => { if (e.key === "Enter" && e.target === tr) openTxn(tr.dataset.open); });
+    });
     $$("button[data-propose]", root).forEach(b => b.addEventListener("click", async () => {
       b.disabled = true;
       if (await propose(b.dataset.propose, [b.dataset.ref])) route(); else b.disabled = false;
@@ -319,13 +342,23 @@
     const [o, t, top, act] = await Promise.all([call("/api/overview"), call("/api/trend"), call("/api/queue?sort=rank&size=10"), call("/api/activity?n=6")]);
     setContext(o);
     const k = o.kpi, v = o.volume;
+    // "What needs doing": built only from live counts, so a step disappears when its work is done
+    const steps = [];
+    if (Number(k.ACCRUING_N) > 0) steps.push({ tone: "danger", icon: "timer", title: `Stop the clock on ${plural(k.ACCRUING_N, "case")}`,
+      body: `They add ${fmt.rs(k.NEW_ACCRUAL_RS)} tomorrow. Each reversal avoids the same daily cost, so start with the customers waiting longest.`, cta: "Open these cases", go: ["queue", { focus: "accruing" }] });
+    if (Number(k.COMP_DUE_N) > 0) steps.push({ tone: "violet", icon: "hand-coins", title: `Pay ${fmt.rs(k.COMP_DUE_RS)} of compensation`,
+      body: `${plural(k.COMP_DUE_N, "reversed case")} still owe the customer compensation, due without waiting for a complaint.`, cta: "Open these cases", go: ["queue", { state: "COMPENSATION_DUE" }] });
+    o.missing_files.forEach(f => steps.push({ tone: "warn", icon: "file-clock", title: `Chase the ${fmt.day(f.SETTLEMENT_DT)} cycle ${fmt.n(f.CYCLE_NO)} settlement file`,
+      body: `Expected ${fmt.dt(f.EXPECTED)}. ${plural(f.BREAKS, "break")} cannot be confirmed until it arrives.`, cta: "See settlement files", go: ["sources", {}] }));
+    if (Number(o.pending) > 0) steps.push({ tone: "info", icon: "clipboard-check", title: `Decide ${plural(o.pending, "proposal")}`,
+      body: "Nothing changes until a named person approves.", cta: "Review", go: ["actions", { status: "PROPOSED" }] });
     const kpis = [
-      { tone: "brand", icon: "indian-rupee", label: "Owed tomorrow if unreversed", value: fmt.rs(k.OWED_TOMORROW_RS),
-        sub: `+${fmt.rs(k.NEW_ACCRUAL_RS)} new by tomorrow · ${fmt.n(k.OPEN_CASES)} open cases`, spark: spark(t.points.map(p => p.OPEN_RS), "#0F6B5C"), go: ["queue", { sort: "owed" }] },
+      { tone: "danger", icon: "indian-rupee", label: "Added tomorrow if nothing changes", value: fmt.rs(k.NEW_ACCRUAL_RS),
+        sub: `${plural(k.ACCRUING_N, "case")} accruing · ${fmt.rs(k.OWED_TOMORROW_RS)} owed in total`, spark: spark(t.points.map(p => p.OPEN_RS), "#B42318"), go: ["queue", { focus: "accruing" }] },
+      { tone: "brand", icon: "wallet", label: "Customer money stuck", value: fmt.rs(k.STUCK_RS), sub: `${plural(k.OPEN_CASES, "debit-no-credit case")} still open`, go: ["queue", { class: "DEBIT_NO_CREDIT" }] },
       { tone: "danger", icon: "clock-alert", label: "Overdue", value: fmt.n(k.OVERDUE_N), sub: `${fmt.rs(k.OVERDUE_RS)} accrued past the deadline`, go: ["queue", { state: "OVERDUE" }] },
-      { tone: "warn", icon: "triangle-alert", label: "At risk by tomorrow", value: fmt.n(k.AT_RISK_N), sub: `${fmt.rs(k.AT_RISK_RS)} owed tomorrow if not reversed`, go: ["queue", { state: "AT_RISK" }] },
-      { tone: "info", icon: "list-checks", label: "Exceptions", value: fmt.n(v.EXCEPTIONS), sub: `${fmt.pct(v.EXCEPTION_PCT)} of ${fmt.n(v.TXNS)} transactions`, spark: spark(o.daily.map(d => d.N), "#1D4F91"), go: ["queue", {}] },
-      { tone: "violet", icon: "hand-coins", label: "Compensation due", value: fmt.rs(k.COMP_DUE_RS), sub: `${fmt.n(k.COMP_DUE_N)} reversed cases missing or underpaid`, go: ["queue", { state: "COMPENSATION_DUE" }] },
+      { tone: "warn", icon: "triangle-alert", label: "Due today", value: fmt.n(k.AT_RISK_N), sub: `Reversed today, these never start accruing`, go: ["queue", { state: "AT_RISK" }] },
+      { tone: "violet", icon: "hand-coins", label: "Compensation due", value: fmt.rs(k.COMP_DUE_RS), sub: `${plural(k.COMP_DUE_N, "reversed case")} missing or underpaid`, go: ["queue", { state: "COMPENSATION_DUE" }] },
     ];
     const tatBlock = o.tat.map(tt => {
       const tot = Math.max(Number(tt.TOTAL), 1);
@@ -334,7 +367,7 @@
         <div class="stack">${seg(tt.OVERDUE, "bg-danger")}${seg(tt.AT_RISK, "bg-warn")}${seg(tt.WITHIN_TAT, "bg-info")}${seg(tt.REVERSED, "bg-neutral")}</div>
         <div class="tat-nums">
           <button data-go-state="OVERDUE"><b class="c-danger">${fmt.n(tt.OVERDUE)}</b><small>Overdue</small></button>
-          <button data-go-state="AT_RISK"><b class="c-warn">${fmt.n(tt.AT_RISK)}</b><small>At risk</small></button>
+          <button data-go-state="AT_RISK"><b class="c-warn">${fmt.n(tt.AT_RISK)}</b><small>Due today</small></button>
           <button data-go-state="WITHIN_TAT"><b class="c-info">${fmt.n(tt.WITHIN_TAT)}</b><small>Within TAT</small></button>
           <button data-go-state="COMPENSATION_DUE" title="Opens the ${fmt.n(tt.COMP_DUE)} reversed cases whose compensation is missing or short"><b>${fmt.n(tt.REVERSED)}</b><small>Reversed · ${fmt.n(tt.COMP_DUE)} comp. due</small></button>
         </div></div>`;
@@ -343,28 +376,47 @@
     const rulesLine = o.rules.map(r => `${esc(r.TXN_TYPE)} T+${fmt.n(r.TAT_DAYS)}${rates.length > 1 ? ` at ${fmt.rs(r.RS_PER_DAY)}/day` : ""}`).join(" · ")
       + (rates.length === 1 ? ` · ${fmt.rs(rates[0])}/day beyond` : "") + (o.rules.length ? ` (${esc(o.rules.map(r => r.FACT_ID).join(", "))})` : "");
     const acts = act.items.length ? act.items.map(activityItem).join("") : `<div class="empty">No proposals or approvals yet.</div>`;
-    app.innerHTML = head("Dashboard", "Reconcile UPI transactions, track TAT exposure, and resolve the costliest exceptions first.") + `
+    const ageMax = Math.max(...o.ageing.map(a => Number(a.N)), 1);
+    const ageing = o.ageing.map(a => `<div class="bar-row"><span>${Number(a.DAYS) ? `${plural(a.DAYS, "day")} past TAT` : "Not past TAT"}</span>
+        <span class="bar"><i class="${Number(a.DAYS) ? "bg-danger" : "bg-info"}" style="width:${100 * Number(a.N) / ageMax}%"></i></span><b>${fmt.n(a.N)}</b><em>${fmt.rs(a.STUCK_RS)}</em></div>`).join("");
+    const banks = o.banks.map(b => `<tr class="clickable" data-bank="${esc(b.BANK)}" tabindex="0" aria-label="Open ${esc(b.BANK)} cases"><td>${esc(b.BANK)}</td><td class="n">${fmt.n(b.N)}</td><td class="n">${fmt.n(b.OVERDUE_N)}</td><td class="n">${fmt.rs(b.STUCK_RS)}</td><td class="n">${Number(b.NEW_ACCRUAL_RS) > 0 ? `<b class="c-danger">+${fmt.rs(b.NEW_ACCRUAL_RS)}</b>` : "–"}</td></tr>`).join("");
+    const comp = o.compensation.map(c => { const m = COMP_META[c.COMP_STATUS] || { label: title(c.COMP_STATUS), tone: "neutral" };
+      return `<div class="row between comp-row"><span>${pill(m.label, m.tone)}</span><span><b>${fmt.n(c.N)}</b>${Number(c.GAP_RS) > 0 ? ` <span class="muted">· ${fmt.rs(c.GAP_RS)} short</span>` : Number(c.PAID_RS) > 0 ? ` <span class="muted">· ${fmt.rs(c.PAID_RS)} paid</span>` : ""}</span></div>`; }).join("");
+    app.innerHTML = head("Dashboard", "See what adds cost tomorrow, fix that first, and prove compensation was paid.") + `
+      <section class="card steps-card" aria-label="What needs doing"><div class="card-head"><h3><span class="hicon"><i data-lucide="list-todo"></i></span>What needs doing</h3></div>
+        ${steps.length ? `<div class="steps">${steps.map((c, i) => `<button class="step tone-${c.tone}" data-step="${i}" type="button"><span class="kpi-icon"><i data-lucide="${c.icon}"></i></span>
+            <span class="step-text"><b>${i + 1}. ${esc(c.title)}</b><span>${esc(c.body)}</span><em>${esc(c.cta)}<i data-lucide="arrow-right"></i></em></span></button>`).join("")}</div>`
+          : `<div class="empty">Nothing needs action right now.</div>`}</section>
       <div class="kpis">${kpis.map((c, i) => `<button class="kpi tone-${c.tone}" data-kpi="${i}" type="button">
           <div class="kpi-top"><span class="kpi-icon"><i data-lucide="${c.icon}"></i></span><span class="kpi-label">${esc(c.label)}</span></div>
           <div class="kpi-value">${c.value}</div><div class="kpi-sub">${c.sub}</div>${c.spark || ""}</button>`).join("")}</div>
       <div class="grid">
+        <div class="span-8"><section class="card">
+          <div class="card-head"><h3><span class="hicon"><i data-lucide="list-ordered"></i></span>Do these first</h3><a class="btn sm" href="#/queue">Open work queue<i data-lucide="arrow-right"></i></a></div>
+          <div class="table-wrap" style="margin-top:12px"><table class="data">${queueHeader(false)}<tbody>${top.rows.slice(0, 6).map(r => queueRow(r)).join("")}</tbody></table></div>
+          <div class="card-foot"><span>Ranked by what a case adds tomorrow, then time waited · ${plural(top.total, "row")} in the queue</span><span class="timing">${top.ms} ms</span></div></section></div>
+        <div class="span-4" style="display:grid;gap:16px;align-content:start">
+          ${card("Ask the assistant", "message-square-text", `<div class="suggest">${state.meta.suggestions.map(s => `<button type="button" data-ask="${esc(s)}"><span>${esc(s)}</span><i data-lucide="arrow-right"></i></button>`).join("")}</div>
+            <form class="askbox" id="dash-ask"><input name="q" placeholder="Ask about the data…" maxlength="500" aria-label="Question"><button class="btn primary" type="submit" aria-label="Ask"><i data-lucide="send"></i></button></form>`, "", `<span>Read-only through the Exasol MCP server</span>`)}
+          ${card("Recent activity", "activity", `<div class="activity">${acts}</div>`, `<a class="btn ghost sm" href="#/audit">Audit log<i data-lucide="arrow-right"></i></a>`)}
+        </div>
+        <div class="span-4">${card("Open cases by age", "hourglass", ageing || `<div class="empty">No open debit-no-credit cases.</div>`, "", `<span>Calendar days past TAT, with customer money stuck</span><span class="timing">${o.ms.ageing} ms</span>`)}</div>
+        <div class="span-4">${card("Chase list by payee bank", "landmark", banks ? `<div class="table-wrap"><table class="data"><thead><tr><th>Payee bank</th><th class="n">Open</th><th class="n">Overdue</th><th class="n">Stuck</th><th class="n">Adds</th></tr></thead><tbody>${banks}</tbody></table></div>` : `<div class="empty">No open debit-no-credit cases.</div>`, "", `<span>The beneficiary bank owns the P2P auto-reversal${(o.rules.find(r => r.TXN_TYPE === "P2P") || {}).FACT_ID ? ` (${esc(o.rules.find(r => r.TXN_TYPE === "P2P").FACT_ID)})` : ""}</span><span class="timing">${o.ms.banks} ms</span>`)}</div>
+        <div class="span-4">${card("Compensation register", "badge-check", comp || `<div class="empty">No debit-no-credit cases.</div>`, `<a class="btn sm" href="/api/compensation.csv" download><i data-lucide="download"></i>Export</a>`, `<span>Every case past TAT, whether or not the customer complained</span><span class="timing">${o.ms.compensation} ms</span>`)}</div>
         <div class="span-5">${card("Compensation liability by day", "chart-line", trendChart(t.points) + `<div class="legend" style="margin-top:8px">
             <span><i class="sw" style="background:#0F6B5C"></i>Owed on cases still open</span><span><i class="sw" style="background:#98A2B3"></i>Accrued on all cases</span>
             <span><i class="sw dash"></i>* tomorrow, projected</span></div>`, "", `<span>Penalty days = calendar days beyond T+TAT, per case, up to its reversal</span><span class="timing">${t.ms} ms</span>`)}</div>
-        <div class="span-4">${card("Exceptions by break type", "chart-pie", donut(o.classes, v.EXCEPTIONS), "", `<span>Select a type to open it in the work queue</span><span class="timing">${o.ms.classes} ms</span>`)}</div>
+        <div class="span-4">${card("Exceptions by break type", "chart-pie", donut(o.classes, v.EXCEPTIONS), "", `<span>${fmt.pct(v.EXCEPTION_PCT)} of ${fmt.n(v.TXNS)} transactions · select a type to open it</span><span class="timing">${o.ms.classes} ms</span>`)}</div>
         <div class="span-3">${card("TAT status by type", "timer", tatBlock || `<div class="empty">No debit-no-credit cases.</div>`, `<a class="btn ghost sm" href="#/queue?class=DEBIT_NO_CREDIT">View<i data-lucide="arrow-right"></i></a>`, `<span>${rulesLine}</span>`)}</div>
-        <div class="span-8"><section class="card">
-          <div class="card-head"><h3><span class="hicon"><i data-lucide="list-ordered"></i></span>Highest exposure first</h3><a class="btn sm" href="#/queue">Open work queue<i data-lucide="arrow-right"></i></a></div>
-          <div class="table-wrap" style="margin-top:12px"><table class="data">${queueHeader(false)}<tbody>${top.rows.slice(0, 6).map(r => queueRow(r)).join("")}</tbody></table></div>
-          <div class="card-foot"><span>Ranked by rupees owed tomorrow, then amount · ${fmt.n(top.total)} rows in the queue</span><span class="timing">${top.ms} ms</span></div></section></div>
-        <div class="span-4" style="display:grid;gap:16px;align-content:start">
-          ${card("Ask the assistant", "message-square-text", `<div class="suggest">${state.meta.suggestions.map(s => `<button type="button" data-ask="${esc(s)}"><span>${esc(s)}</span><i data-lucide="arrow-right"></i></button>`).join("")}</div>
-            <form class="askbox" id="dash-ask"><input name="q" placeholder="Ask about the data…" maxlength="500" aria-label="Question"><button class="btn primary" type="submit" aria-label="Ask"><i data-lucide="send"></i></button></form>`, `<span class="muted" style="font-size:12px">Read-only through the Exasol MCP server</span>`)}
-          ${card("Recent activity", "activity", `<div class="activity">${acts}</div>`, `<a class="btn ghost sm" href="#/audit">Audit log<i data-lucide="arrow-right"></i></a>`)}
-        </div>
       </div>`;
     $$("[data-kpi]", app).forEach(b => b.addEventListener("click", () => go(...kpis[Number(b.dataset.kpi)].go)));
+    $$("[data-step]", app).forEach(b => b.addEventListener("click", () => go(...steps[Number(b.dataset.step)].go)));
     $$("[data-class]", app).forEach(b => b.addEventListener("click", () => go("queue", { class: b.dataset.class })));
+    $$("[data-bank]", app).forEach(b => {
+      const open = () => go("queue", { class: "DEBIT_NO_CREDIT", bank: b.dataset.bank });
+      b.addEventListener("click", open);
+      b.addEventListener("keydown", e => { if (e.key === "Enter") open(); });
+    });
     $$("[data-go-state]", app).forEach(b => b.addEventListener("click", () => go("queue", { state: b.dataset.goState, class: "DEBIT_NO_CREDIT" })));
     $$("[data-ask]", app).forEach(b => b.addEventListener("click", () => go("assistant", { ask: b.dataset.ask })));
     $("#dash-ask").addEventListener("submit", e => { e.preventDefault(); const v = e.target.q.value.trim(); if (v) go("assistant", { ask: v }); });
@@ -384,36 +436,40 @@
 
   // ------------------------------------------------------------------ page: work queue
   PAGES.queue = async (app, p) => {
-    const params = { state: p.state || "", class: p.class || "", q: p.q || "", sort: p.sort || state.meta.queue_sorts[0], page: p.page || "1", size: p.size || String(state.meta.default_page_size) };
+    const params = { state: p.state || "", focus: p.focus || "", bank: p.bank || "", class: p.class || "", q: p.q || "", sort: p.sort || state.meta.queue_sorts[0], page: p.page || "1", size: p.size || String(state.meta.default_page_size) };
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
     const r = await call("/api/queue?" + qs);
     state.selected = new Set([...state.selected].filter(id => r.rows.some(x => x.EXC_ID === id)));
     const all = Object.values(r.tabs).reduce((a, b) => a + Number(b), 0);
-    const tabs = [["", "All", all], ...state.meta.tat_states.map(s => [s, (STATE_META[s] || { label: title(s) }).label, r.tabs[s] || 0])];
+    const tabs = [{ label: "All", n: all, on: !params.state && !params.focus, patch: { state: "", focus: "" } },
+      ...state.meta.queue_focus.map(f => ({ label: FOCUS_LABEL[f] || title(f), n: r[f] || 0, on: params.focus === f, patch: { state: "", focus: f } })),
+      ...state.meta.tat_states.map(s => ({ label: (STATE_META[s] || { label: title(s) }).label, n: r.tabs[s] || 0, on: params.state === s, patch: { state: s, focus: "" } }))];
     const pages = Math.max(1, Math.ceil(Number(r.total) / r.size));
-    const csvQs = new URLSearchParams(Object.entries({ state: params.state, class: params.class, q: params.q }).filter(([, v]) => v)).toString();
-    app.innerHTML = head("Work Queue", "Every open exception, plus reversed cases whose compensation is missing. Ranked by rupees owed tomorrow.",
-      `<a class="btn" href="/api/queue.csv${csvQs ? "?" + csvQs : ""}" download><i data-lucide="download"></i>Export CSV</a>`) + `
+    const csvQs = new URLSearchParams(Object.entries({ state: params.state, focus: params.focus, bank: params.bank, class: params.class, q: params.q }).filter(([, v]) => v)).toString();
+    app.innerHTML = head("Work Queue", "Every open exception, plus reversed cases whose compensation is missing.",
+      `<a class="btn" href="/api/compensation.csv" download><i data-lucide="badge-check"></i>Compensation register</a><a class="btn" href="/api/queue.csv${csvQs ? "?" + csvQs : ""}" download><i data-lucide="download"></i>Export this view</a>`) + `
       <section class="card">
-        <div class="tabs">${tabs.map(([s, l, n]) => `<button class="tab ${params.state === s ? "active" : ""}" data-tab="${s}" type="button">${esc(l)} <em>${fmt.n(n)}</em></button>`).join("")}</div>
+        <div class="tabs">${tabs.map((t, i) => `<button class="tab ${t.on ? "active" : ""}" ${t.on ? 'aria-pressed="true"' : 'aria-pressed="false"'} data-tab="${i}" type="button">${esc(t.label)} <em>${fmt.n(t.n)}</em></button>`).join("")}</div>
+        <p class="hint"><i data-lucide="info"></i><span>Compensation is a flat amount per day, so every accruing case costs the same to leave open. Those come first, longest wait first. Compensation already owed comes next, then cases still inside TAT, then breaks with no TAT clock.</span></p>
         <form class="toolbar" id="qf">
           <label class="search"><i data-lucide="search"></i><input name="q" value="${esc(params.q)}" placeholder="Search by UPI id, RRN or exception id" maxlength="40"></label>
           <select name="class" aria-label="Break type"><option value="">All break types</option>${r.classes.map(c => `<option value="${esc(c)}" ${c === params.class ? "selected" : ""}>${esc(classMeta(c).label)}</option>`).join("")}</select>
           <select name="sort" aria-label="Sort">${state.meta.queue_sorts.map(v => `<option value="${esc(v)}" ${v === params.sort ? "selected" : ""}>Sort: ${esc(SORT_LABEL[v] || title(v).toLowerCase())}</option>`).join("")}</select>
           <button class="btn" type="submit"><i data-lucide="filter"></i>Apply</button>
-          ${params.q || params.class ? `<button class="btn ghost" type="button" id="qclear">Clear</button>` : ""}
+          ${params.bank ? `<span class="pill neutral">Payee bank: ${esc(params.bank)}</span>` : ""}
+          ${params.q || params.class || params.bank ? `<button class="btn ghost" type="button" id="qclear">Clear</button>` : ""}
         </form>
         <div class="bulkbar" id="bulk" hidden></div>
-        <div class="table-wrap"><table class="data">${queueHeader(true)}<tbody>${r.rows.map(x => queueRow(x, { select: true })).join("") || `<tr><td colspan="9"><div class="empty">Nothing matches these filters.</div></td></tr>`}</tbody></table></div>
+        <div class="table-wrap"><table class="data">${queueHeader(true)}<tbody>${r.rows.map(x => queueRow(x, { select: true })).join("") || `<tr><td colspan="10"><div class="empty">Nothing matches these filters.</div></td></tr>`}</tbody></table></div>
         <div class="pager"><span>Showing ${fmt.n(r.rows.length ? (r.page - 1) * r.size + 1 : 0)}–${fmt.n((r.page - 1) * r.size + r.rows.length)} of ${fmt.n(r.total)} · <span class="timing">${r.ms} ms</span></span>
           <div class="row"><select id="psize" aria-label="Rows per page">${sizeOptions(r.size)}</select>${pager(r.page, pages)}</div></div>
       </section>`;
     const set = (patch) => go("queue", { ...params, ...patch });
-    $$("[data-tab]", app).forEach(b => b.addEventListener("click", () => set({ state: b.dataset.tab, page: 1 })));
+    $$("[data-tab]", app).forEach(b => b.addEventListener("click", () => set({ ...tabs[Number(b.dataset.tab)].patch, page: 1 })));
     $("#qf").addEventListener("submit", e => { e.preventDefault(); const f = e.target; set({ q: f.q.value.trim(), class: f.class.value, sort: f.sort.value, page: 1 }); });
     $("#qf select[name=class]").addEventListener("change", () => $("#qf").requestSubmit());
     $("#qf select[name=sort]").addEventListener("change", () => $("#qf").requestSubmit());
-    if ($("#qclear")) $("#qclear").addEventListener("click", () => set({ q: "", class: "", page: 1 }));
+    if ($("#qclear")) $("#qclear").addEventListener("click", () => set({ q: "", class: "", bank: "", page: 1 }));
     $("#psize").addEventListener("change", e => set({ size: e.target.value, page: 1 }));
     $$("[data-page-to]", app).forEach(b => b.addEventListener("click", () => set({ page: b.dataset.pageTo })));
     bindRowClicks(app);
@@ -482,7 +538,7 @@
         <div class="span-4">${card("How it answers", "shield-check", `<div class="kv" style="grid-template-columns:1fr">
             <div><dt>Mode</dt><dd>${h.agent_ready ? (h.agent_mode === "gemini" ? "Google Gemini, with read-only tools" : "Deterministic playbooks (no language model configured)") : esc(h.agent_error || "Starting…")}</dd></div>
             <div><dt>Reads</dt><dd>Through the official Exasol MCP server, as a database user that can only SELECT</dd></div>
-            <div><dt>Numbers</dt><dd>Every number in an answer is checked against that turn's query results before it is shown</dd></div>
+            <div><dt>Numbers</dt><dd>Each number must appear in that turn's query results before it is shown. Open the queries to confirm what it means</dd></div>
             <div><dt>Changes</dt><dd>The assistant can only propose. A named person approves on the Actions page</dd></div></div>`)}</div></div>`;
     const render = () => {
       $("#thread").innerHTML = state.thread.length ? state.thread.map(m => m.q ? `<div class="msg-q">${esc(m.q)}</div>` : answerHtml(m)).join("") : `<div class="empty">Ask a question, or pick one below.</div>`;
@@ -509,7 +565,7 @@
     const prop = a.proposal ? (a.proposal.error ? `<span class="c-danger">Proposal refused: ${esc(a.proposal.error)}</span>` :
       `<span><i data-lucide="clipboard-check"></i><a href="#/actions?status=PROPOSED">Proposal ${esc(a.proposal.action_id)}</a>${a.proposal.duplicate ? " (already pending)" : ""} waits for approval</span>`) : "";
     return `<div class="msg-a"><div class="answer">${esc(a.answer)}</div>
-      <div class="msg-meta">${a.grounded ? `<span><i data-lucide="check"></i>Every number matches the query results</span>` : `<span class="c-danger"><i data-lucide="circle-alert"></i>Not shown as an answer: ${esc((a.ungrounded || []).join(", "))}</span>`}
+      <div class="msg-meta">${a.grounded ? `<span><i data-lucide="check"></i>Every number appears in the query results</span>` : `<span class="c-danger"><i data-lucide="circle-alert"></i>Not shown as an answer: ${esc((a.ungrounded || []).join(", "))}</span>`}
         <span><i data-lucide="database"></i>${fmt.n((a.queries || []).length)} ${(a.queries || []).length === 1 ? "query" : "queries"}</span><span><i data-lucide="timer"></i>${fmt.n(a.total_ms)} ms</span>${prop}</div>${q}</div>`;
   }
 
@@ -532,13 +588,17 @@
   };
   function actionCard(a) {
     const m = actionMeta(a.ACTION_TYPE);
+    const proposed = a.STATUS === "PROPOSED";
+    const own = proposed && state.meta.maker_checker && who.get() && String(a.CREATED_BY).trim().toLowerCase() === (state.meta.analyst_prefix + who.get()).trim().toLowerCase();
+    const impact = proposed && isNum(a.POST_RS) ? `<div class="impact"><i data-lucide="corner-down-right"></i>Approving posts a ${fmt.rs(a.POST_RS)} credit${Number(a.NEW_ACCRUAL_RS) > 0 ? ` and avoids ${fmt.rs(a.NEW_ACCRUAL_RS)} tomorrow` : ""}</div>` : "";
     const target = a.ACTION_TYPE === "CHASE_SETTLEMENT_FILE" ? `<span class="mono">${esc(a.TARGET_REF)}</span>` : `<button class="btn ghost sm mono" data-open="${esc(a.TARGET_REF)}" type="button">${esc(a.TARGET_REF)}</button>`;
     return `<div class="action-card"><div>
         <h4><i data-lucide="${m.icon}"></i>${esc(m.label)} ${target} ${pill(title(a.STATUS), STATUS_TONE[a.STATUS] || "neutral")}</h4>
-        <p class="wrap">${esc(a.RATIONALE || "")}</p>
+        <p class="wrap">${esc(a.RATIONALE || "")}</p>${impact}
+        ${own ? `<div class="impact muted"><i data-lucide="users"></i>You proposed this, so a second person must approve it. You can still reject it.</div>` : ""}
         <div class="meta"><span>Proposed by ${esc(a.CREATED_BY)} · ${fmt.dt(a.CREATED)}</span>${a.DECIDED_BY ? `<span>Decided by ${esc(a.DECIDED_BY)} · ${fmt.dt(a.DECIDED)}</span>` : ""}<span class="mono">${esc(a.ACTION_ID)}</span></div></div>
       <div class="side">${a.STATUS === "PROPOSED" ? `<button class="btn" data-decide="reject" data-id="${esc(a.ACTION_ID)}" type="button"><i data-lucide="x"></i>Reject</button>
-        <button class="btn primary" data-decide="approve" data-id="${esc(a.ACTION_ID)}" type="button"><i data-lucide="check"></i>Approve</button>` : ""}</div></div>`;
+        <button class="btn primary" data-decide="approve" data-id="${esc(a.ACTION_ID)}" type="button" ${own ? "disabled" : ""}><i data-lucide="check"></i>Approve</button>` : ""}</div></div>`;
   }
   async function decide(btn) {
     const user = who.require();
@@ -557,7 +617,8 @@
     try {
       const r = await call(`/api/actions/${encodeURIComponent(btn.dataset.id)}/${approve ? "approve" : "reject"}`, { user });
       if (r.status === "FAILED") toast(`Execution failed and was logged: ${esc(r.error || "")}`, true);
-      else if (approve && r.before && r.after && r.status === "EXECUTED") toast(`Executed. Owed tomorrow across the queue: ${fmt.rs(r.before.exposure_next_24h_rs)} → ${fmt.rs(r.after.exposure_next_24h_rs)} (${fmt.n(Math.round(r.total_ms / 1000))} s).`);
+      else if (r.error) toast(esc(r.error), true);
+      else if (approve && r.before && r.after && r.status === "EXECUTED") toast(`Executed. Added tomorrow across the queue: ${fmt.rs(r.before.new_accrual_24h_rs)} → ${fmt.rs(r.after.new_accrual_24h_rs)} (${fmt.n(Math.round(r.total_ms / 1000))} s).`);
       else toast(`${title(r.status)}: ${esc(btn.dataset.id)}`);
     } catch (e) { toast(esc(e.message), true); }
     loadShell(); route();
@@ -657,11 +718,25 @@
   }
 
   // ------------------------------------------------------------------ transaction drawer
+  // One plain sentence on what this case needs, built from the same live values the drawer shows below it.
+  function nextStep(e, pen, qr) {
+    if (!qr) return null;
+    const partial = Number(e.REVERSED_RS) > 0 && e.STATUS === "OPEN" ? ` ${fmt.rs(e.REVERSED_RS)} of ${fmt.rs(e.DEBIT_TOTAL_RS)} has been reversed; the rest is still due.` : "";
+    const deadline = pen ? fmt.dayLong(pen.DEADLINE_DT) : "";
+    if (qr.TAT_STATE === "OVERDUE") return ["danger", `Reverse now. This case is ${clockText(pen.DAYS_TO_DEADLINE).toLowerCase()}: ${fmt.rs(pen.PENALTY_RS)} has accrued and ${fmt.rs(pen.NEW_ACCRUAL_RS)} more is added tomorrow.${partial}`];
+    if (qr.TAT_STATE === "AT_RISK") return ["warn", `Reverse today. The deadline is ${deadline}; if it stays open, ${fmt.rs(pen.NEW_ACCRUAL_RS)} is added tomorrow.${partial}`];
+    if (qr.TAT_STATE === "WITHIN_TAT") return ["info", `${clockText(pen.DAYS_TO_DEADLINE)}. Reversal is due by ${deadline}.${partial}`];
+    if (qr.TAT_STATE === "COMPENSATION_DUE") return ["violet", `Reversed on ${fmt.dayLong(e.REVERSAL_DT)}, after the deadline. ${fmt.rs(pen.COMP_GAP_RS)} of compensation is still owed, without waiting for a complaint.`];
+    return ["neutral", "TAT Guard prices no TAT penalty for this break type. It still needs a person to review it."];
+  }
+  const copyBtn = (v, label) => v ? `<button class="copy" data-copy="${esc(v)}" type="button" aria-label="Copy ${esc(label)}" title="Copy ${esc(label)}"><i data-lucide="copy"></i></button>` : "";
   async function openTxn(id) {
     const d = $("#drawer"), body = $("#drawer-body");
+    if (!d.classList.contains("open")) state.lastFocus = document.activeElement;
     $("#drawer-title").textContent = id;
-    body.innerHTML = `<div class="loading">Loading…</div>`;
+    body.innerHTML = `<div class="skeleton" role="status" aria-label="Loading"><i></i><i></i></div>`;
     d.classList.add("open"); d.setAttribute("aria-hidden", "false"); $("#scrim").hidden = false;
+    $("#drawer-close").focus();
     try {
       const t = await call("/api/txn?id=" + encodeURIComponent(id));
       const e = t.exception || {}, s = t.state || {}, pen = t.penalty, qr = t.queue;
@@ -671,11 +746,13 @@
       const np = t.npci.map(r => `<div class="box"><b>${esc(title(r.STATUS))}</b> · ${fmt.rs(r.AMOUNT_RS)} · response ${esc(r.RESP_CODE)} · payee ${esc(r.PAYEE_BANK)}<div class="subtle">Settlement ${fmt.dayLong(r.SETTLEMENT_DT)}, cycle ${fmt.n(r.CYCLE_NO)}</div></div>`).join("")
         || `<div class="box">No NPCI record yet.${s.FILE_EXPECTED ? ` The settlement file for ${fmt.dayLong(s.FILE_SETTLEMENT_DT)} cycle ${fmt.n(s.FILE_CYCLE_NO)} was expected ${fmt.dt(s.FILE_EXPECTED)} and ${s.FILE_ARRIVED ? "arrived " + fmt.dt(s.FILE_ARRIVED) : "has not arrived"}.` : ""}</div>`;
       const cb = t.cbs.map(r => `<div class="box"><b>${esc(r.DR_CR === "DR" ? (r.KIND === "DEBIT" ? "Debit" : "Debit · " + title(r.KIND)) : "Credit · " + title(r.KIND))}</b> · ${fmt.rs(r.AMOUNT_RS)}${r.MATCH_PASS ? ` · matched in pass ${fmt.n(r.MATCH_PASS)}` : ""}<div class="subtle">${fmt.dt(r.POST_TIME)} · <span class="mono">${esc(r.CBS_ENTRY_ID)}</span></div><div class="mono wrap" style="margin-top:4px">${esc(r.NARRATION)}</div></div>`).join("") || `<div class="box">No core-banking entry.</div>`;
+      const next = nextStep(e, pen, qr);
       body.innerHTML = `
+        ${next ? `<div class="next ${next[0]}">${esc(next[1])}</div>` : ""}
         <div class="row" style="flex-wrap:wrap">${e.CLASS ? classTag(e.CLASS) : pill("Reconciled", "brand")}${qr ? statePill(qr.TAT_STATE) : ""}${e.STATUS ? pill(title(e.STATUS), "neutral") : ""}${qr ? `<span class="muted">Queue rank ${fmt.n(qr.QUEUE_RANK)}</span>` : ""}</div>
         <dl class="kv"><div><dt>Amount</dt><dd>${fmt.rs(s.AMOUNT_RS || e.AMOUNT_RS)}</dd></div><div><dt>Type</dt><dd>${esc(s.TXN_TYPE || e.TXN_TYPE || "–")}</dd></div>
-          <div><dt>Transaction time</dt><dd>${fmt.dt(s.TXN_TIME || e.TXN_TIME)}</dd></div><div><dt>RRN</dt><dd class="mono">${esc(s.RRN || e.RRN || "–")}</dd></div>
-          <div><dt>Payee bank</dt><dd>${esc(s.PAYEE_BANK || e.BANK || "–")}</dd></div><div><dt>Exception id</dt><dd class="mono">${esc(e.EXC_ID || "–")}</dd></div></dl>
+          <div><dt>Transaction time</dt><dd>${fmt.dt(s.TXN_TIME || e.TXN_TIME)}</dd></div><div><dt>RRN</dt><dd class="mono">${esc(s.RRN || e.RRN || "–")}${copyBtn(s.RRN || e.RRN, "RRN")}</dd></div>
+          <div><dt>Payee bank</dt><dd>${esc(s.PAYEE_BANK || e.BANK || "–")}</dd></div><div><dt>Exception id</dt><dd class="mono">${esc(e.EXC_ID || "–")}${copyBtn(e.EXC_ID, "exception id")}</dd></div></dl>
         ${pen ? `<div><p class="section-title">TAT clock</p><dl class="kv">
           <div><dt>Rule</dt><dd>${esc(pen.CASE_NAME)} · T+${fmt.n(pen.TAT_DAYS)}</dd></div><div><dt>Deadline</dt><dd>${fmt.dayLong(pen.DEADLINE_DT)}</dd></div>
           <div><dt>Days beyond TAT</dt><dd>${fmt.n(pen.PENALTY_DAYS)}</dd></div><div><dt>Accrued</dt><dd>${fmt.rs(pen.PENALTY_RS)}</dd></div>
@@ -687,11 +764,16 @@
         ${t.actions.length ? `<div><p class="section-title">Actions</p>${t.actions.map(a => `<div class="row between" style="padding:8px 0;border-bottom:1px solid var(--line-2)"><span>${esc(actionMeta(a.ACTION_TYPE).label)} · ${esc(a.CREATED_BY)}</span>${pill(title(a.STATUS), STATUS_TONE[a.STATUS] || "neutral")}</div>`).join("")}</div>` : ""}
         ${act ? `<div class="row"><button class="btn primary" id="drawer-propose" type="button"><i data-lucide="${actionMeta(act).icon}"></i>${esc(actionMeta(act).cta)}</button><span class="muted">A named person approves it on the Actions page.</span></div>` : ""}`;
       icons(body);
+      $$("[data-copy]", body).forEach(b => b.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(b.dataset.copy); toast("Copied."); } catch (err) { toast("Copy is not available in this browser.", true); }
+      }));
       if ($("#drawer-propose")) $("#drawer-propose").addEventListener("click", async () => { if (await propose(act, [e.EXC_ID])) { openTxn(id); route(); } });
     } catch (err) { body.innerHTML = `<div class="error-box">${esc(err.message)}</div>`; }
   }
   function closeDrawer() {
+    if (!$("#drawer").classList.contains("open")) return;
     $("#drawer").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true"); $("#scrim").hidden = true;
+    if (state.lastFocus && state.lastFocus.isConnected) state.lastFocus.focus();
     const { page, params } = parseHash();
     if (params.open) { delete params.open; history.replaceState(null, "", `#/${page}${Object.keys(params).length ? "?" + new URLSearchParams(params) : ""}`); }
   }

@@ -14,7 +14,7 @@ class FakeQ:
 
 
 @pytest.mark.parametrize("args", [{"q": "x' OR 1=1"}, {"q": "a b"}, {"state": "NOPE"}, {"class": "drop table"},
-                                  {"class": "LATE_FILE;"}])
+                                  {"class": "LATE_FILE;"}, {"focus": "1=1"}, {"bank": "x' OR '1'='1"}])
 def test_queue_rejects_bad_input_before_any_sql(args):
     q = FakeQ()
     with pytest.raises(ValueError):
@@ -60,3 +60,24 @@ def test_tat_states_match_the_view_definition():
     view = (api.ROOT / "sql" / "30_penalty_view.sql").read_text(encoding="utf-8")
     for s in api.TAT_STATES:
         assert f"'{s}'" in view
+
+
+def test_queue_bank_is_a_parameter_and_focus_comes_from_the_whitelist():
+    q = FakeQ()
+    try:
+        api.queue(q, {"bank": "BANK02", "focus": "accruing"})
+    except KeyError:
+        pass
+    sql, params = q.calls[0]
+    assert "BANK02" not in sql and params["bank"] == "BANK02" and api.QUEUE_FOCUS["accruing"] in sql
+
+
+def test_ranking_puts_new_cost_before_sunk_cost():
+    view = (api.ROOT / "sql" / "30_penalty_view.sql").read_text(encoding="utf-8")
+    order = view[view.index("ROW_NUMBER() OVER (ORDER BY"):view.index('AS "QUEUE_RANK"')]
+    assert order.index('"NEW_ACCRUAL_24H_PAISE"') < order.index('"AMOUNT_PAISE"')
+    assert '"EXPOSURE_NEXT_24H_PAISE"' not in order
+
+
+def test_compensation_register_covers_every_case_past_tat():
+    assert 'WHERE "PENALTY_DAYS" > 0' in api.COMPENSATION_CSV_SQL

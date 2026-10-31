@@ -5,6 +5,10 @@ Rules enforced here, on the backend's admin connection (the agent's DB user cann
     values are looked up from the database at execution time. No SQL text from the agent/LLM is ever executed;
     the agent can only supply (action_type, target_ref, rationale), and rationale is stored as data.
   * A proposal is executed only after a human approves it, exactly once (UPDATE ... WHERE STATUS='PROPOSED').
+  * Maker-checker: a person cannot approve their own proposal (actions.require_second_person in recon/config.yaml).
+    They can reject it, which withdraws it.
+  * A posting is never repeated: if the recon after a posting fails, the case still looks eligible, so the action stays
+    EXECUTED and any new proposal for that target is refused until a recon has picked the posting up.
   * Every execution writes AUDIT.ACTION_LOG: who, when, the exact SQL executed, before/after snapshots.
 
 On this SYNTHETIC data, executing POST_REVERSAL / PAY_COMPENSATION simulates the bank's CBS posting (one credit
@@ -41,6 +45,8 @@ PROPOSE_WHEN = {
     "POST_REVERSAL": """"CLASS" = 'DEBIT_NO_CREDIT' AND "STATUS" = 'OPEN'""",
     "PAY_COMPENSATION": """"COMP_STATUS" IN ('MISSING', 'UNDERPAID')""",
 }
+ANALYST_PREFIX = "analyst:"       # CREATED_BY of a person's proposal; the agent's start with "agent:"
+MAKER_CHECKER = bool(CFG["actions"]["require_second_person"])
 # Lifecycle of AUDIT.PROPOSED_ACTIONS.STATUS: PROPOSED -> APPROVED (claimed) -> EXECUTED | LOGGED | FAILED, or REJECTED
 STATUSES = ("PROPOSED", "APPROVED", "EXECUTED", "LOGGED", "REJECTED", "FAILED")
 
@@ -112,6 +118,16 @@ def _eligible(C, action_type: str, target_ref: str) -> None:
         raise ActionError(f"unknown action_type {action_type!r}; allowed: {sorted(ACTION_TYPES)}")
     if not ok:
         raise ActionError(f"{action_type} not eligible for {target_ref!r}: {why}")
+    if action_type in PROPOSE_WHEN:
+        done = _one(C, """SELECT "ACTION_ID" FROM "AUDIT"."PROPOSED_ACTIONS" WHERE "ACTION_TYPE" = {a}
+                          AND "TARGET_REF" = {t} AND "STATUS" = 'EXECUTED'""", {"a": action_type, "t": target_ref})
+        if done:
+            raise ActionError(f"{done[0]} already posted {action_type} for {target_ref!r} and the case still shows as "
+                              "eligible, so the reconciliation has not picked it up. Run the reconciliation first.")
+
+
+def same_person(created_by: str, user: str) -> bool:
+    return str(created_by or "").strip().casefold() == (ANALYST_PREFIX + str(user or "").strip()).casefold()
 
 
 def propose(C, action_type: str, target_ref: str, rationale: str, evidence_sql: str = "", created_by: str = "agent") -> dict:
@@ -135,7 +151,7 @@ def _execution_sql(C, action_type: str, target_ref: str, action_id: str) -> str 
         return None
     as_of = _as_of(C)
     if action_type == "POST_REVERSAL":
-        r = _one(C, """SELECT e."RRN", r."ACCOUNT_NO_MASKED", e."DEBIT_AMOUNT_PAISE"
+        r = _one(C, """SELECT e."RRN", r."ACCOUNT_NO_MASKED", e."DEBIT_TOTAL_PAISE" - e."REVERSED_PAISE"
                        FROM "RECON"."EXCEPTIONS" e
                        JOIN "RECON"."CBS_MATCH" m ON m."RRN" = e."RRN" AND m."KIND" = 'DEBIT'
                        JOIN "RECON"."CBS_REF" r ON r."CBS_ENTRY_ID" = m."CBS_ENTRY_ID"
@@ -160,11 +176,13 @@ def decide(C, action_id: str, approve: bool, user: str) -> dict:
     user = str(user or "").strip()[:100]
     if not user:
         raise ActionError("a named human approver is required")
-    row = _one(C, """SELECT "ACTION_TYPE", "TARGET_REF" FROM "AUDIT"."PROPOSED_ACTIONS" WHERE "ACTION_ID" = {a}""",
+    row = _one(C, """SELECT "ACTION_TYPE", "TARGET_REF", "CREATED_BY" FROM "AUDIT"."PROPOSED_ACTIONS" WHERE "ACTION_ID" = {a}""",
                {"a": action_id})
     if not row:
         raise ActionError(f"no action {action_id}")
-    action_type, target_ref = row
+    action_type, target_ref, created_by = row
+    if approve and MAKER_CHECKER and same_person(created_by, user):
+        raise ActionError(f"{user} proposed {action_id}, so a second person must approve it")
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     claimed = C.execute("""UPDATE "AUDIT"."PROPOSED_ACTIONS" SET "STATUS" = {s}, "DECIDED_BY" = {u}, "DECIDED_TS" = {ts}
                            WHERE "ACTION_ID" = {a} AND "STATUS" = 'PROPOSED'""",
@@ -177,7 +195,7 @@ def decide(C, action_id: str, approve: bool, user: str) -> dict:
     # From here the action is claimed (APPROVED). Every path below must end in an ACTION_LOG row and a final status,
     # so the snapshots are inside the try blocks: a failed read must not leave the action stuck at APPROVED.
     snap_ref = target_ref if action_type != "CHASE_SETTLEMENT_FILE" else None
-    before, outcome, sql, err = {}, "EXECUTED", None, None
+    before, outcome, sql, err, recon_err = {}, "EXECUTED", None, None, None
     try:
         before = snapshot(C, snap_ref)
         _eligible(C, action_type, target_ref)          # still eligible at execution time?
@@ -190,16 +208,17 @@ def decide(C, action_id: str, approve: bool, user: str) -> dict:
                 T = pipeline.Timer(C, "act-" + action_id[3:], "after-action")
                 try:
                     pipeline.cmd_recon(C, T)
-                finally:
                     T.flush()
+                except Exception as e:  # the money moved, so this stays EXECUTED, not FAILED: see _eligible
+                    recon_err = f"posted, but the reconciliation did not finish: {type(e).__name__}: {e}"[:2000]
     except Exception as e:  # recorded, not swallowed: status FAILED + log row
         outcome, err = "FAILED", f"{type(e).__name__}: {e}"[:2000]
     try:
         after = snapshot(C, snap_ref)
     except Exception as e:
         after = {"snapshot_error": f"{type(e).__name__}: {e}"[:2000]}
-    if err:
-        after["error"] = err
+    if err or recon_err:
+        after["error"] = err or recon_err
     C.execute("""INSERT INTO "AUDIT"."ACTION_LOG" ("LOG_ID", "ACTION_ID", "EXECUTED_BY", "EXECUTED_TS", "EXECUTED_SQL",
                  "BEFORE_JSON", "AFTER_JSON", "OUTCOME") VALUES ({l}, {a}, {u}, {ts}, {sql}, {b}, {af}, {o})""",
               {"l": "L-" + uuid.uuid4().hex[:12].upper(), "a": action_id, "u": user,
@@ -207,4 +226,4 @@ def decide(C, action_id: str, approve: bool, user: str) -> dict:
                "b": json.dumps(before)[:20000], "af": json.dumps(after)[:20000], "o": outcome})
     C.execute("""UPDATE "AUDIT"."PROPOSED_ACTIONS" SET "STATUS" = {s} WHERE "ACTION_ID" = {a}""",
               {"s": outcome, "a": action_id})
-    return {"action_id": action_id, "status": outcome, "executed_sql": sql, "before": before, "after": after, "error": err}
+    return {"action_id": action_id, "status": outcome, "executed_sql": sql, "before": before, "after": after, "error": err or recon_err}

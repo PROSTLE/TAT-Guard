@@ -1,6 +1,6 @@
 # TAT Guard development tasks
 
-.PHONY: test lint generate load recon verify ui clean
+.PHONY: test lint generate load recon verify verify-v5 ui clean
 
 test:
 	pytest -v tests/
@@ -20,7 +20,7 @@ load:
 recon:
 	python recon/pipeline.py recon
 
-verify: verify-v0 verify-v1 verify-v2 verify-v4
+verify: verify-v0 verify-v1 verify-v2 verify-v4 verify-v5
 
 verify-v0:
 	python verify/v0_connect.py
@@ -33,6 +33,9 @@ verify-v2:
 
 verify-v4:
 	python verify/v4_agent.py
+
+verify-v5:
+	python verify/v5_edge_cases.py
 
 ui:
 	python ui/server.py

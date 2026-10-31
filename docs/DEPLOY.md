@@ -11,7 +11,7 @@ Why each step looks the way it does (with sources) is in [SETUP.md](SETUP.md).
 
 | Need | Version we used | Notes |
 |---|---|---|
-| Python | 3.13.5 | pyexasol needs ≥ 3.10; the MCP server needs ≥ 3.11 |
+| Python | 3.13.5 | 3.12 or later: numpy 2.5.3 needs ≥ 3.12 |
 | uv / uvx | 0.11.3 | runs the pinned Exasol MCP server in its own environment |
 | Windows only: winget + WSL2 | WSL 2 | Exasol Personal runs in Podman's default machine on Windows |
 | Free disk | ~1 GB per 1M rows of generated CSV + DB storage | 10M rows of CSV = 3.0 GB |
@@ -75,9 +75,10 @@ live query; clicking a KPI, a break type or a TAT status opens the matching filt
 any row opens the transaction drawer (what the switch, NPCI and CBS each recorded, plus its TAT clock).
 
 Demo flow: set your name (top right; it goes into the audit log) → **Assistant**: "Why did breaks spike?" → it
-proposes chasing the late settlement file → **Work Queue**: **Propose reversal** on rank 1 (or tick several rows for a
-bulk proposal) → **Actions**: **Approve**, then confirm → the recon re-runs; the case becomes REVERSED and reappears
-as *Compensation due* → propose and approve that → it leaves the queue. Every step is in **Audit Log**, and
+proposes chasing the late settlement file → ask **What is our ₹ exposure and what should we fix first?**, which proposes the
+rank 1 reversal → **Actions**: **Approve**, then confirm → the recon re-runs; the case becomes REVERSED and reappears
+as *Compensation due* → propose that from the **Work Queue**, change the name at top right (nobody can approve their own
+proposal), and approve it → it leaves the queue. Every step is in **Audit Log**, and
 **Export CSV** on the Work Queue downloads the current filter.
 
 The late file "arrives" with `.\.venv\Scripts\python recon\pipeline.py ingest-pending --data data\1m`.
@@ -92,6 +93,8 @@ the proposal and audit tables (they are append-only otherwise, so old actions wo
 .\.venv\Scripts\python crosscheck\dual_impl.py --csv data\1m --exasol      # Exasol vs independent pandas matcher
 .\.venv\Scripts\python crosscheck\penalty_check.py                         # penalty SQL vs penalty.py
 .\.venv\Scripts\python verify\v4_agent.py --data data\1m                   # agent safety (creates/approves real actions)
+.\.venv\Scripts\python verify\v5_edge_cases.py                             # edge cases through the real SQL (throwaway schemas)
+.\.venv\Scripts\python crosscheck\benchmark.py --data data\1m               # same recon in pandas; about 17 min on our laptop
 .\.venv\Scripts\python nonhalluc\claim_scan.py README.md                   # every number in README is sourced
 .\.venv\Scripts\python crosscheck\recompute_numbers.py                     # recompute README numbers from facts.yaml
 ```

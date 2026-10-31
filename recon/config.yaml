@@ -30,7 +30,11 @@ actions:                         # DESIGN: what an APPROVED action does. On this
     POST_REVERSAL: "UPI/REV/{rrn}/TATGUARD"
     PAY_COMPENSATION: "TAT COMP/{rrn}/{rupees}"
   recon_after_execute: true      # DESIGN: re-run the full recon so queue and exposure reflect the posting
+  require_second_person: true    # DESIGN: maker-checker; whoever proposes an action cannot approve it
 
 rootcause:                       # DESIGN: thresholds for the deterministic root-cause playbook (agent/playbook.py)
   file_grace_minutes: 60         # a settlement file counts as late only this long after its expected time
   top_windows: 3                 # how many spike windows to report
+
+ui:                              # DESIGN: presentation limits served to the page
+  top_banks: 8                   # rows in the dashboard's payee-bank card

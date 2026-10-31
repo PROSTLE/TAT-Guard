@@ -10,7 +10,7 @@ from ui import api, server
 
 APP_JS = (api.ROOT / "ui" / "static" / "app.js").read_text(encoding="utf-8")
 POST_ROUTES = {"/api/ask", "/api/propose", "/api/actions"}   # /api/actions/<id>/approve|reject, see Handler.do_POST
-CSV_ROUTES = {"/api/queue.csv"}
+CSV_ROUTES = set(server.CSV_ROUTES)
 
 
 def js_map_keys(name: str) -> set:
@@ -35,12 +35,16 @@ def test_label_maps_cover_every_backend_value():
     assert set(api.TAT_STATES) <= js_map_keys("STATE_META")
     assert set(actions.ACTION_TYPES) <= js_map_keys("ACTION_META")
     assert set(actions.STATUSES) <= js_map_keys("STATUS_TONE")
+    view = (api.ROOT / "sql" / "30_penalty_view.sql").read_text(encoding="utf-8")
+    comp = re.search(r"CASE WHEN d\.\"PENALTY_DAYS\" = 0 THEN(.*?)END AS \"COMP_STATUS\"", view, re.S).group(0)
+    assert set(re.findall(r"(?:THEN|ELSE) '([A-Z_]+)'", comp)) == js_map_keys("COMP_META")
 
 
 def test_meta_serves_the_backend_vocabulary():
     m = server.api_meta({})
     assert m["tat_states"] == list(api.TAT_STATES) and m["queue_sorts"] == list(api.QUEUE_SORT)
     assert m["default_page_size"] in m["page_sizes"] and m["action_statuses"] == list(actions.STATUSES)
+    assert m["queue_focus"] == list(api.QUEUE_FOCUS) and m["maker_checker"] == actions.MAKER_CHECKER
     assert set(m["action_types"]) == set(actions.ACTION_TYPES) and m["suggestions"] == SUGGESTIONS
 
 
