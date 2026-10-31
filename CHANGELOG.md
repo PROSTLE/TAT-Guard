@@ -16,7 +16,17 @@ challenge window: see the date-stamped files in `reports/`.
 - CI: Python 3.12 and 3.13, the versions the pinned dependencies support
 - Event dates in facts.yaml
 
+### Changed
+- UI redesign: Home intro page, sidebar grouped by job (Act, Understand, Prove), a short Today page in place of the 13-card dashboard, Insights with one topic at a time, light and dark themes, plain empty states
+- README rewritten around who it is for and how it works, with diagrams; results, safety and limitations unchanged
+- Break types are a ranked bar list; a donut could not show one type at 96% of exceptions
+
 ### Added
+- TAT Guard logo and favicon on a transparent background
+- Connect & Import: pick an Exasol database, load the sample dataset, four CSV files or a schema, and watch the real load and reconciliation timings
+- The data label follows what is loaded, and a strip shows where the data on the screens comes from
+- Guided demo: nine steps through the real pages, using live figures, writing nothing
+- Find a payment by UPI id or RRN from any page
 - Maker-checker: the proposer of an action cannot approve it
 - Dashboard: what needs doing, open cases by age, chase list by payee bank, compensation register with CSV export
 - Queue: "Adding cost tomorrow" view, deadline countdown, payee-bank filter, ranking explained on the page

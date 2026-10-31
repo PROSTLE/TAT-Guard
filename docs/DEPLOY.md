@@ -67,19 +67,28 @@ In bash: `set -a; . ./.env; set +a`. `.env` is git-ignored; never commit it.
 ```powershell
 .\.venv\Scripts\python ui\server.py        # http://127.0.0.1:8765
 ```
-The first start downloads the pinned `exasol-mcp-server==2.2.0` through uvx (a few seconds after that). The header
-shows `agent: deterministic` unless `GEMINI_API_KEY` is set, in which case it shows `agent: gemini`.
+The first start downloads the pinned `exasol-mcp-server==2.2.0` through uvx (a few seconds after that). **Assistant** →
+*How it answers* shows deterministic playbooks unless `GEMINI_API_KEY` is set, in which case it shows Google Gemini.
 
-Pages: Dashboard, Work Queue, Transactions, Assistant, Actions, Audit Log, Data Sources, Reports. Every figure is a
-live query; clicking a KPI, a break type or a TAT status opens the matching filter in the Work Queue, and clicking
+The app opens on Home, with a **Guided demo** that walks the real pages and writes nothing. The sidebar groups the pages
+by job: Act (Today, Work Queue, Approvals), Understand (Insights, Transactions, Assistant), Prove (Audit Log, Reports,
+Data Sources). Every figure is a live query; clicking a KPI, a break type or a TAT status opens the matching filter in the Work Queue, and clicking
 any row opens the transaction drawer (what the switch, NPCI and CBS each recorded, plus its TAT clock).
 
 Demo flow: set your name (top right; it goes into the audit log) → **Assistant**: "Why did breaks spike?" → it
 proposes chasing the late settlement file → ask **What is our ₹ exposure and what should we fix first?**, which proposes the
-rank 1 reversal → **Actions**: **Approve**, then confirm → the recon re-runs; the case becomes REVERSED and reappears
+rank 1 reversal → **Approvals**: **Approve**, then confirm → the recon re-runs; the case becomes REVERSED and reappears
 as *Compensation due* → propose that from the **Work Queue**, change the name at top right (nobody can approve their own
 proposal), and approve it → it leaves the queue. Every step is in **Audit Log**, and
 **Export CSV** on the Work Queue downloads the current filter.
+
+**Connect & Import** does step 4 from the page: connect to an Exasol database (the password stays in the server's
+memory), choose the sample dataset, four uploaded CSV files or a schema holding the four tables, and press **Import and
+reconcile**. It runs the same `recon/pipeline.py` code, replaces all data in RAW and RECON, and logs the same timings.
+CSV headers must match `sql/00_schemas.sql` exactly; these are stand-in layouts, so a real NPCI, switch or CBS file needs
+converting first. Only public or synthetic data belongs here: there is no login. An import empties the ground truth, so
+run `verify/v1_load.py --data data/1m` again before any `verify/` script. Uploads and schemas load into a staging schema and
+are checked first, so a bad file leaves the current data alone.
 
 The late file "arrives" with `.\.venv\Scripts\python recon\pipeline.py ingest-pending --data data\1m`.
 To reset the demo, repeat the commands in step 4 from `pipeline.py load`, adding `--reset-audit` to the load to empty

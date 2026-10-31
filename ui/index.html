@@ -4,50 +4,72 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TAT Guard</title>
+<script>try { if (localStorage.getItem("tg_theme") === "dark") document.documentElement.dataset.theme = "dark"; } catch (e) { /* storage unavailable */ }</script>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/static/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/static/favicon-180.png">
 <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
+<body data-page="home">
 <a class="skip-link" href="#app">Skip to content</a>
-<header class="topbar">
-  <a class="brand" href="#/dashboard" aria-label="TAT Guard home">
-    <span class="brand-mark"><i data-lucide="shield-check"></i></span>
+
+<aside class="side" id="side" aria-label="Main">
+  <a class="brand" href="#/home" aria-label="TAT Guard home">
+    <span class="brand-mark"><img src="/static/favicon.svg" alt=""></span>
     <span class="brand-text"><b>TAT Guard</b><small>Every stuck rupee, on a clock</small></span>
   </a>
   <nav class="nav" id="nav">
-    <a href="#/dashboard" data-page="dashboard"><i data-lucide="layout-dashboard"></i><span>Dashboard</span></a>
+    <a href="#/home" data-page="home"><i data-lucide="house"></i><span>Home</span></a>
+    <a href="#/connect" data-page="connect"><i data-lucide="plug-zap"></i><span>Connect &amp; Import</span></a>
+    <p class="nav-group">Act</p>
+    <a href="#/dashboard" data-page="dashboard"><i data-lucide="sun"></i><span>Today</span></a>
     <a href="#/queue" data-page="queue"><i data-lucide="list-ordered"></i><span>Work Queue</span></a>
+    <a href="#/actions" data-page="actions"><i data-lucide="clipboard-check"></i><span>Approvals</span><em class="count" id="nav-pending" hidden></em></a>
+    <p class="nav-group">Understand</p>
+    <a href="#/insights" data-page="insights"><i data-lucide="chart-line"></i><span>Insights</span></a>
     <a href="#/transactions" data-page="transactions"><i data-lucide="arrow-left-right"></i><span>Transactions</span></a>
     <a href="#/assistant" data-page="assistant"><i data-lucide="message-square-text"></i><span>Assistant</span></a>
-    <a href="#/actions" data-page="actions"><i data-lucide="clipboard-check"></i><span>Actions</span><em class="count" id="nav-pending" hidden></em></a>
+    <p class="nav-group">Prove</p>
     <a href="#/audit" data-page="audit"><i data-lucide="scroll-text"></i><span>Audit Log</span></a>
-    <a href="#/sources" data-page="sources"><i data-lucide="database"></i><span>Data Sources</span></a>
     <a href="#/reports" data-page="reports"><i data-lucide="file-chart-column"></i><span>Reports</span></a>
+    <a href="#/sources" data-page="sources"><i data-lucide="database"></i><span>Data Sources</span></a>
   </nav>
-  <div class="topbar-right">
+  <div class="side-foot">
+    <button class="demo-btn" data-tour-start type="button"><i data-lucide="play"></i><span>Guided demo</span></button>
     <div class="conn" id="conn" title="Database connection"><i data-lucide="server"></i><span>Connecting…</span></div>
-    <a class="icon-btn bell" href="#/actions" id="bell" aria-label="Pending approvals"><i data-lucide="bell"></i><em class="count" id="bell-count" hidden></em></a>
-    <div class="who">
-      <button class="who-btn" id="who-btn" type="button" aria-haspopup="dialog"><span class="avatar" id="who-avatar"><i data-lucide="user-round"></i></span><span class="who-text"><b id="who-name">Set your name</b><small>Acting as</small></span><i data-lucide="chevron-down"></i></button>
-      <div class="popover" id="who-pop" hidden>
-        <label for="who-input">Your name, as written to the audit log</label>
-        <input id="who-input" maxlength="80" placeholder="e.g. Priya, Operations" autocomplete="name">
-        <div class="row end"><button class="btn primary sm" id="who-save" type="button">Save</button></div>
+    <div class="last-run" id="ctx-run"><i data-lucide="clock"></i><span>…</span></div>
+  </div>
+</aside>
+
+<div class="shell">
+  <header class="topbar">
+    <a class="brand brand-top" href="#/home" aria-label="TAT Guard home">
+      <span class="brand-mark"><img src="/static/favicon.svg" alt=""></span>
+      <span class="brand-text"><b>TAT Guard</b></span>
+    </a>
+    <form class="search find" id="find" role="search">
+      <i data-lucide="search"></i>
+      <input name="q" placeholder="Find a payment by UPI id or RRN" maxlength="40" aria-label="Find a payment" autocomplete="off">
+    </form>
+    <div class="topbar-right">
+      <a class="synth" id="data-chip" href="#/connect" title="Where this data comes from"><i data-lucide="database"></i><span>Connecting…</span></a>
+      <div class="ctx-chip" id="ctx-window"><i data-lucide="calendar-range"></i><span>…</span></div>
+      <button class="icon-btn" id="refresh" type="button" aria-label="Refresh" title="Refresh"><i data-lucide="refresh-cw"></i></button>
+      <button class="icon-btn" id="theme" type="button" aria-label="Switch between light and dark" title="Switch between light and dark"><i class="only-light" data-lucide="moon"></i><i class="only-dark" data-lucide="sun"></i></button>
+      <div class="who">
+        <button class="who-btn" id="who-btn" type="button" aria-haspopup="dialog"><span class="avatar" id="who-avatar"><i data-lucide="user-round"></i></span><span class="who-text"><b id="who-name">Set your name</b><small>Acting as</small></span><i data-lucide="chevron-down"></i></button>
+        <div class="popover" id="who-pop" hidden>
+          <label for="who-input">Your name, as written to the audit log</label>
+          <input id="who-input" maxlength="80" placeholder="e.g. Priya, Operations" autocomplete="name">
+          <div class="row end"><button class="btn primary sm" id="who-save" type="button">Save</button></div>
+        </div>
       </div>
     </div>
-  </div>
-</header>
+  </header>
 
-<div class="contextbar">
-  <div class="notice"><i data-lucide="info"></i><b>Synthetic data.</b><span>File layouts are stand-ins, not real NPCI, switch or CBS formats.</span></div>
-  <div class="ctx-right">
-    <div class="ctx-chip" id="ctx-window"><i data-lucide="calendar-range"></i><span>…</span></div>
-    <div class="ctx-chip" id="ctx-run"><i data-lucide="clock"></i><span>…</span></div>
-    <button class="btn ghost sm" id="refresh" type="button"><i data-lucide="refresh-cw"></i><span>Refresh</span></button>
-  </div>
+  <div class="offline" id="offline" role="alert" hidden><i data-lucide="server-off"></i><span><b>The database is not reachable.</b> Figures below may be missing. Start it with <span class="mono">podman machine start</span>, then <span class="mono">exasol start</span>, and press Refresh, or <a href="#/connect">connect to another database</a>.</span></div>
+  <main id="app" class="page" tabindex="-1"></main>
 </div>
-
-<div class="offline" id="offline" role="alert" hidden><i data-lucide="server-off"></i><span><b>The database is not reachable.</b> Figures below may be missing. Start it with <span class="mono">podman machine start</span>, then <span class="mono">exasol start</span>, and press Refresh.</span></div>
-<main id="app" class="page" tabindex="-1"></main>
 
 <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" aria-hidden="true">
   <div class="drawer-head">
@@ -57,6 +79,7 @@
   <div class="drawer-body" id="drawer-body"></div>
 </aside>
 <div class="scrim" id="scrim" hidden></div>
+<aside class="coach" id="coach" aria-live="polite" aria-label="Guided demo" hidden></aside>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="/static/vendor/lucide-1.47.0/lucide.min.js"></script>
