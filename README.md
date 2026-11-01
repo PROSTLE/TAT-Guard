@@ -17,9 +17,19 @@ fix the most urgent cases first, and prove what it did.
   </picture>
 </a>
 
+**[Demo video](deliverables/demo_video.mp4)** · **[Presentation (PDF)](deliverables/TAT_Guard.pdf)** · **[Demo video on Google Drive](https://drive.google.com/file/d/1QNgFqSpvGM3b4qivJFTD0B0iJ-7oxpyW/view?usp=sharing)**
+
 [Why it exists](#why-it-exists) · [Who it is for](#who-it-is-for) · [How it works](#how-it-works) · [Quick start](#quick-start) · [Results](#results) · [Safety](#safety-model) · [Limitations](#limitations-and-open-items)
 
 </div>
+
+## Demo video and presentation
+
+| What | Link |
+|---|---|
+| Demo video | [deliverables/demo_video.mp4](deliverables/demo_video.mp4) |
+| Presentation (PPT as PDF) | [deliverables/TAT_Guard.pdf](deliverables/TAT_Guard.pdf) |
+| Demo video on Google Drive | [Open on Google Drive](https://drive.google.com/file/d/1QNgFqSpvGM3b4qivJFTD0B0iJ-7oxpyW/view?usp=sharing) |
 
 > [!IMPORTANT]
 > **All data in this project is SYNTHETIC.** Our file layouts are stand-ins, not the real NPCI, switch or CBS
