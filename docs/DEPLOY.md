@@ -23,7 +23,7 @@ Why each step looks the way it does (with sources) is in [SETUP.md](SETUP.md).
 The link changes each time a quick tunnel starts, so start it once. For a fixed address use a named Cloudflare tunnel on
 your own domain, and set `TATGUARD_PUBLIC_HOST` to that host name.
 
-**Between judges**: open `http://127.0.0.1:8765/#/proof` on the serving machine and press **Reset the demo** (about 20 seconds).
+**Between judges**: open `http://127.0.0.1:8765/#/live` on the serving machine and press **Reset the demo** (about 20 seconds).
 It also resets itself after 30 idle minutes. Everyone shares one bank, so a judge sees what the last one did until then.
 
 **If something goes wrong**: stop the script, run `exasol status`, then start again. The data is safe in Exasol.
@@ -94,14 +94,20 @@ In bash: `set -a; . ./.env; set +a`. `.env` is git-ignored; never commit it.
 The first start downloads the pinned `exasol-mcp-server==2.2.0` through uvx (a few seconds after that). **Assistant** →
 *How it answers* shows deterministic playbooks unless `GEMINI_API_KEY` is set, in which case it shows Google Gemini.
 
-The app opens on **Live**. A checklist at the top follows the demo path and fills in as each step is done.
+The app opens on Home, with a **Guided demo** that walks the real pages and writes nothing, and **Try it live**, which opens the
+Live demo page. The sidebar groups the other pages by job: Act (Today, Work Queue, Approvals), Understand (Insights, Transactions,
+Assistant), Prove (Audit Log, Reports, Data Sources). Every figure is a live query; clicking a KPI, a break type or a TAT status
+opens the matching filter in the Work Queue, and clicking any row opens the transaction drawer.
 
-Demo flow: **Live**: press Pay with "Money leaves, payee gets nothing" → the verdict names what happened → **Move the clock 2 days**
-and watch the figures move → **Open this case** → as Asha, **Propose reversal** → switch to Vikram at the top right → **Approve**
-→ the reconciliation re-runs and the case closes → **Ask**: "Why did breaks spike?" → **Deliver the late file** on Live and watch
-the breaks clear → **Proof**: live accuracy and the audit log. **Export** on Cases downloads the current view.
+Demo flow: **Live demo**: press Pay with "Money leaves, payee gets nothing" → the verdict names what happened → **Move the clock 2
+days** and watch the figures move → **Open this case** → as Asha, **Propose reversal** → switch to Vikram under *Acting as* at the top
+right → **Approvals**: **Approve**, then confirm → the reconciliation re-runs → **Assistant**: "Why did breaks spike?" → **Deliver the
+late file** on Live demo and watch the breaks clear → **Audit Log** shows every step.
 
-The import API (`/api/connect`, `/api/upload`, `/api/import`) has no page, and is served to a local install only, never over a public link.
+**Connect & Import** does step 4 from the page: connect to an Exasol database, choose the sample dataset, four uploaded CSV files or
+a schema holding the four tables, and press **Import and reconcile**. CSV headers must match `sql/00_schemas.sql` exactly. Only public or
+synthetic data belongs here. It is offered on a local install only, never over a public link. An import empties the ground truth, so
+run `verify/v1_load.py --data data/1m` again before any `verify/` script.
 
 The late file also "arrives" with `.\.venv\Scripts\python recon\pipeline.py ingest-pending --data data\1m`.
 To reset the demo from a terminal, repeat the commands in step 4 from `pipeline.py load`, adding `--reset-audit` to the load.

@@ -67,7 +67,8 @@ LIMITS = {"pay": (12, 60), "storm": (2, 60), "storm_all": (6, 3600), "clock": (1
           "ask_all": (150, 86400), "propose": (30, 60), "decide": (20, 60), "login": (12, 60)}
 LOCAL_ONLY = {"/api/connection", "/api/imports", "/api/connect", "/api/import", "/api/upload", "/api/live/reset"}
 OPEN_ROUTES = {"/api/session", "/api/meta"}     # everything else under /api/ needs a session
-CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'; "
+# Scripts are locked to this server. Styles allow inline: the page's charts and bars size themselves with style attributes.
+CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; "
        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 ASK_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ask")
 ASK_JOBS: dict = {}
@@ -309,13 +310,17 @@ GET_ROUTES = {
     "/api/meta": api_meta,
     "/api/health": api_health,
     "/api/overview": lambda a: api.overview(q),
+    "/api/trend": lambda a: api.trend(q),
+    "/api/activity": lambda a: api.activity(q, a.get("n", 12)),
     "/api/queue": lambda a: api.queue(q, a),
+    "/api/transactions": lambda a: api.transactions(q, a),
     "/api/txn": lambda a: api.transaction_detail(q, a.get("id", "")),
     "/api/actions": lambda a: api.proposals(q, a.get("status", "")),
     "/api/audit": lambda a: api.audit_log(q),
     "/api/sources": lambda a: api.sources(q),
     "/api/reports": lambda a: api.reports_list(),
     "/api/report": lambda a: api.report_text(a.get("name", "")),
+    "/api/runs": lambda a: api.runs(q),
     "/api/connection": lambda a: importer.connection(),
     "/api/imports": lambda a: importer.status(),
     "/api/live/verify": lambda a: engine().verify(),

@@ -8,28 +8,22 @@ from agent import actions
 from agent.agent import ROUTES, SUGGESTIONS
 from ui import api, server
 
-APP_JS = "\n".join(p.read_text(encoding="utf-8") for p in sorted((api.ROOT / "ui" / "static").glob("*.js")))
+APP_JS = (api.ROOT / "ui" / "static" / "app.js").read_text(encoding="utf-8")
+POST_ROUTES = set(server.POST_ROUTES) | {"/api/actions", "/api/connect", "/api/import", "/api/upload", "/api/session"}   # see Handler.do_POST
 CSV_ROUTES = set(server.CSV_ROUTES)
-# Served for scripts on a local install only, with no page: the database switch and bulk import. Never served in public mode.
-NO_PAGE = {"/api/connection", "/api/imports", "/api/connect", "/api/import", "/api/upload", "/api/live/reset"}
-SERVED = set(server.GET_ROUTES) | set(server.SESSION_GET_ROUTES) | set(server.POST_ROUTES) | CSV_ROUTES | {"/api/session", "/api/actions"}
 
 
 def js_map_keys(name: str) -> set:
-    block = re.search(r"const " + name + r" = \{(.*?)\n\};", APP_JS, re.S)
-    assert block, f"{name} not found in the page's scripts"
-    return set(re.findall(r"^\s*([A-Z][A-Z0-9_]+):|, ([A-Z][A-Z0-9_]+):", block.group(1), re.M)[i][j]
-               for i in range(len(re.findall(r"^\s*([A-Z][A-Z0-9_]+):|, ([A-Z][A-Z0-9_]+):", block.group(1), re.M))) for j in (0, 1)) - {""}
+    block = re.search(r"const " + name + r" = \{(.*?)\n  \};|const " + name + r" = \{(.*?)\};", APP_JS, re.S)
+    assert block, f"{name} not found in app.js"
+    return set(re.findall(r"\b([A-Z][A-Z0-9_]+):", block.group(1) or block.group(2)))
 
 
 def test_page_calls_only_served_routes_and_every_route_is_used():
     called = {c.rstrip("/") for c in re.findall(r"/api/[a-z./-]+", APP_JS)}
-    assert called <= SERVED, f"page calls routes the server does not serve: {called - SERVED}"
-    assert SERVED - NO_PAGE <= called, f"server routes the page never calls: {SERVED - NO_PAGE - called}"
-
-
-def test_local_only_routes_are_refused_in_public_mode():
-    assert NO_PAGE == server.LOCAL_ONLY
+    served = set(server.GET_ROUTES) | set(server.SESSION_GET_ROUTES) | POST_ROUTES | CSV_ROUTES
+    assert called <= served, f"page calls routes the server does not serve: {called - served}"
+    assert served <= called, f"server routes the page never calls: {served - called}"
 
 
 def test_label_maps_cover_every_backend_value():
@@ -47,6 +41,7 @@ def test_label_maps_cover_every_backend_value():
 
 
 def test_meta_serves_the_backend_vocabulary():
+    assert set(server.LOCAL_ONLY) <= POST_ROUTES | set(server.GET_ROUTES)
     m = server.api_meta({})
     assert m["tat_states"] == list(api.TAT_STATES) and m["queue_sorts"] == list(api.QUEUE_SORT)
     assert m["default_page_size"] in m["page_sizes"] and m["action_statuses"] == list(actions.STATUSES)

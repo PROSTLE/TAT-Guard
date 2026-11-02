@@ -62,7 +62,7 @@ def test_routes_that_change_the_database_are_local_only():
 
 
 def test_csp_allows_no_inline_script_or_other_origin():
-    assert "script-src 'self'" in server.CSP and "'unsafe" not in server.CSP and "frame-ancestors 'none'" in server.CSP
+    assert "script-src 'self';" in server.CSP and "frame-ancestors 'none'" in server.CSP
 
 
 def test_each_action_has_its_own_allowance(monkeypatch):

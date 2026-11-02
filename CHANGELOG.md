@@ -7,10 +7,10 @@ All notable changes to TAT Guard will be documented in this file.
 Made after the 31 Oct submission deadline, for the finals. The repository as submitted is commit `bb31389`.
 
 ### Added
-- Live page: a visitor makes a payment, chooses what goes wrong, and the real reconciliation decides what happened
+- Live demo page: a visitor makes a payment, chooses what goes wrong, and the real reconciliation decides what happened
 - Outage generated inside Exasol, the late file delivered from the page, and a clock that reprices every case at once
-- A rail showing every statement as it runs, with its time, row count and Exasol's execution plan
-- Live accuracy on the Proof page, including visitors' payments
+- A panel showing every statement as it runs, with its time, row count and Exasol's execution plan
+- Live accuracy on the Live demo page, including visitors' payments
 - AI analyst: conversation memory, live query steps, generated SQL with self-correction, and a labelled fallback
 - Public mode: access code, rate limits, security headers, and scripts for a local run and a public link
 - Model failover with a timeout on each call, because a busy Gemini model can hang for over 19 seconds
@@ -19,13 +19,9 @@ Made after the 31 Oct submission deadline, for the finals. The repository as sub
 - `verify/v4_agent.py` counted prepared-query fallbacks as the model's answers; it now reports them as BLOCKED
 
 ### Changed
-- The UI is rebuilt from eleven pages into four (Live, Cases, Ask, Proof)
 - The backend runs as a user that owns only its own schemas, not as the admin
 - Identity comes from a server-side session; approvers no longer type a name
 - The agent's DB user has a query timeout, in its own consumer group
-
-### Removed
-- The Connect & Import page. The API remains for a local install
 
 ## [Unreleased] - 2026-10-31
 

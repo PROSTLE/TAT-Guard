@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/img/logo.svg" alt="TAT Guard logo: a clock" width="84">
+<img src="docs/img/logo.svg" alt="TAT Guard logo: a shield with a clock, holding a rupee coin" width="210">
 
 # TAT Guard
 
@@ -34,7 +34,7 @@ puts the most urgent first, and proves what was done.
 
 ## Try it
 
-Open the link from the team, or run it yourself with `bash scripts/run_demo.sh`. Then:
+Open the link from the team, or run it yourself with `bash scripts/run_demo.sh`. On Home, press **Try it live**. Then:
 
 1. **Make a payment fail.** Pick what goes wrong. Your payment becomes real rows in the three source tables.
 2. **Watch Exasol catch it.** The same reconciliation that handles every other payment runs across all of them, pass by pass.
@@ -44,8 +44,8 @@ Open the link from the team, or run it yourself with `bash scripts/run_demo.sh`.
 5. **Ask the data anything.** The AI analyst writes SQL, runs it read-only on Exasol, and shows every query.
 6. **Check the proof.** Accuracy is computed live, including the payments you just made.
 
-The dark rail on the right shows every statement as it happens: the exact SQL, its real time and row count, and for
-each pass the execution plan from Exasol's own profile.
+The **Exasol, live** panel on that page shows every statement as it happens: the exact SQL, its real time and row count, and
+for each pass the execution plan from Exasol's own profile. The rest of the app works as before, on the same data.
 
 ### What is real and what is not
 
@@ -93,9 +93,9 @@ who have to answer for their work. It is a working prototype on synthetic data a
 
 | If you are a... | You need to know... | TAT Guard gives you... |
 |---|---|---|
-| **Reconciliation analyst** | Which case to pick up next, and why | Cases: a ranked list, and one case showing what each system recorded |
-| **Operations lead** | What will cost money tomorrow, and where the work is stuck | The figures at the top of every page, and a chase list by payee bank |
-| **Approver (checker)** | Exactly what will change before saying yes | Approvals in Cases, showing the amount to be posted; only a second person can approve |
+| **Reconciliation analyst** | Which case to pick up next, and why | A ranked Work Queue, and one case view showing what each system recorded |
+| **Operations lead** | What will cost money tomorrow, and where the work is stuck | The Today page, a chase list by payee bank, and a view of open cases by age |
+| **Approver (checker)** | Exactly what will change before saying yes | Approvals, showing the amount to be posted; nobody can approve their own proposal |
 | **Compliance or internal audit** | Whether compensation was really paid, unprompted | A compensation register to export, and an audit log with the SQL and the before and after figures |
 | **Data or technology team** | Whether this can be trusted and run on their own database | Open SQL, a verifier against ground truth, and reconciliation that runs inside Exasol |
 
@@ -126,8 +126,10 @@ flowchart TB
 Each approved fix goes back through Exasol: the reconciliation runs again, so the queue always reflects what was done.
 
 **Where the data comes from.** No figure is stored in the page. `generator/generate.py` writes synthetic CSV files, those
-load into Exasol, the reconciliation runs there, and every screen reads the result. On top of that base, visitors add
-their own payments, an outage or the late file from the Live page, in the same tables, through `ui/live.py`.
+load into Exasol, the reconciliation runs there, and every screen reads the result. The **Connect & Import** page does
+this without a terminal: pick an Exasol database, then load the sample dataset, four CSV files, or four tables from a
+schema. New files are checked in a staging schema first, so a bad file leaves the loaded data alone. On top of that base,
+visitors add their own payments, an outage or the late file from the Live demo page, in the same tables, through `ui/live.py`.
 
 ### What happens at each step
 
@@ -160,7 +162,7 @@ their own payments, an outage or the late file from the Live page, in the same t
 
 ### The life of a case
 
-A debit-no-credit case moves through these states. The labels are the ones used in Cases.
+A debit-no-credit case moves through these states. The labels are the ones used on the Work Queue.
 
 ```mermaid
 stateDiagram-v2
@@ -226,17 +228,27 @@ owns every write, so visitors cannot collide. `tests/test_ui_contract.py` fails 
 
 ## See it
 
-**Live** is the whole story on one screen: the payment, what each system recorded, the reconciliation and the verdict.
+**Live demo** is where a visitor tries it: the payment, what each system recorded, the reconciliation and the verdict.
 
-![The Live page: a failed payment, what each system recorded, the reconciliation pass by pass, and the verdict](docs/img/live.png)
+![The Live demo page: a failed payment, the reconciliation pass by pass, the Exasol activity and the verdict](docs/img/live.png)
 
-**Cases** ranks the work by what it adds tomorrow, and one case shows the evidence and the next step.
+Home explains the problem and offers a guided demo through the real pages.
 
-![Cases with one case open, showing the clock and what each system recorded](docs/img/cases.png)
+![TAT Guard home: the problem, how it works and where to start](docs/img/home.png)
 
-**Proof** computes accuracy now, on the same database, including anything a visitor just did.
+**Today** opens with what needs doing, built from live counts. **Insights** then shows one topic at a time: open cases
+by age, a chase list by payee bank, and a compensation register that exports every case past TAT as evidence that
+compensation was paid without a complaint.
 
-![Proof: live accuracy against the answer key, and the audit trail](docs/img/proof.png)
+![TAT Guard Today page: what needs doing, the cost added tomorrow, and the cases to fix first](docs/img/dashboard.png)
+
+**Connect & Import** shows where the data comes from, with the real load and reconciliation timings.
+
+![Connect and import: where the data comes from, with the real load and reconciliation timings](docs/img/connect.png)
+
+| Work queue | One case |
+|---|---|
+| ![Work queue on the view of cases adding cost tomorrow](docs/img/work-queue.png) | ![A case with its next step, TAT clock and what each system recorded](docs/img/case.png) |
 
 ## Quick start
 
@@ -253,7 +265,7 @@ Terminal.app. Add `GEMINI_API_KEY` to `.env` to switch on the AI analyst.
 To put it on a public link behind an access code, run `bash scripts/go_public.sh`. Details, Windows steps and
 troubleshooting are in [docs/DEPLOY.md](docs/DEPLOY.md).
 
-Pages: Live, Cases, Ask, Proof. Every figure is a live query.
+Pages: Home, Live demo, Connect & Import, Today, Work Queue, Approvals, Insights, Transactions, Assistant, Audit Log, Reports, Data Sources. Every figure is a live query.
 
 ## Results
 
@@ -275,7 +287,7 @@ Measured on this repo's own runs; the reports are in `reports/`.
 | Same 1M reconciliation, pandas vs Exasol | pandas 1,020.4 s to read the CSVs, match and classify; Exasol 40.5 s for the recon, plus 16.8 s to bulk load the same CSVs. Same laptop, one run of each, same exceptions. The pandas matcher is an untuned cross-check, so this is not a best-possible pandas time [MEASURED] | `reports/benchmark_1000000_*.md` |
 | Recon run time, 10M transactions | 274 s cold, 284 s warm [MEASURED] | `reports/timings.csv`, scale `10000000` |
 | Bulk load, 10M transactions | about 16 min for the three source files (CBS ledger alone 12.5 min) [MEASURED] | `reports/timings.csv` |
-| Live payments through the page | 1,00,002 of 1,00,002 classified correctly across all eight scenarios and a 50,000 payment outage, 0 false alarms, 0 missed [MEASURED] | Proof page, 2 Nov; the check runs live |
+| Live payments through the page | 1,00,002 of 1,00,002 classified correctly across all eight scenarios and a 50,000 payment outage, 0 false alarms, 0 missed [MEASURED] | Live demo page, 2 Nov; the check runs live |
 | Recon run time, 1M transactions, MacBook Air M4 | 11.5 s to 13.3 s on Exasol Personal's macOS VM with 2 CPUs and 8 GB [MEASURED] | `reports/timings.csv`, host `exasol-personal-2.2.0-local-macos-arm64` |
 | Moving the clock | every open case repriced in 11 ms to 12 ms, because penalties are a view [MEASURED] | shown on the page each time |
 
@@ -322,8 +334,8 @@ or is tagged [ASSUMPTION], [MEASURED] or [DESIGN]. `python nonhalluc/claim_scan.
 We would rather state these plainly than have a reader discover them.
 
 - **Synthetic data only.** File layouts, response codes, RRN width, cycle schedule and narration formats are our own design.
-  The import API on a local install takes files in these stand-in layouts, so a real NPCI, switch or CBS file would need
-  converting first. Only public or synthetic data belongs in it.
+  Connect & Import takes files in these stand-in layouts, so a real NPCI, switch or CBS file would need converting first.
+  Only public or synthetic data belongs in it.
 - **No Deemed, TCC or RET lifecycle.** Real UPI disputes turn on these states and on NPCI's chargeback rules [NPCI-OC213]. We
   could not read the NPCI circulars themselves (their site refused download), so we did not model rules we had not read.
 - **Who receives compensation is a design assumption.** The circular's general principle pays a credit-push penalty to the
@@ -336,9 +348,9 @@ We would rather state these plainly than have a reader discover them.
   dozen questions a day; a jury needs billing enabled on the key. When every model is out, the page says so and falls
   back to prepared questions. The full V4 gate has not yet completed against the model in one run, because the daily
   limit ran out partway: the scripted questions fell back, and the gate now reports that as BLOCKED, not as a pass.
-- **The import API has no page any more,** and is served to a local install only. Switching to a second Exasol database and
-  the 10M sample import have not been run. An import also empties the ground truth, so run `verify/v1_load.py` again before
-  any `verify/` script.
+- **Connect & Import has untested paths.** Switching to a second Exasol database and the 10M sample import through the page
+  have not been run. An import also empties the ground truth, so run `verify/v1_load.py` again before any `verify/` script.
+  The page is not offered over a public link.
 - **The sign-in is a demo's.** One access code, two fictional people, sessions held in memory. A bank would use its own
   identity provider. The roles and the rules around them are enforced on the server.
 - **Visitors share one bank.** There is one ledger and one clock, as at a real bank, so a visitor sees what others did. The
@@ -355,7 +367,7 @@ We would rather state these plainly than have a reader discover them.
 ## Credits and licence
 
 TAT Guard runs on [Exasol Personal](https://github.com/exasol/exasol-personal) and reads through the official
-[Exasol MCP server](https://github.com/exasol/mcp-server). The app uses [IBM Plex](https://github.com/IBM/plex) under the SIL Open Font License.
+[Exasol MCP server](https://github.com/exasol/mcp-server). Icons in the app are from [Lucide](https://lucide.dev/).
 
 The Exasol name and logo belong to Exasol AG and appear here only to show the platform this project runs on. TAT Guard is
 an independent project and is not affiliated with or endorsed by Exasol AG, NPCI or the Reserve Bank of India.
