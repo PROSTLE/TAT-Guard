@@ -181,3 +181,23 @@ act-E54B599502D9,after-action,recon 30_penalty_view.sql,2026-10-31T02:47:52,405,
 1408a3b7f3da,1000000,recon 10_match_pass4.sql,2026-10-31T02:49:12,1947,,exasol-personal-2.3.0-local-windows-podman
 1408a3b7f3da,1000000,recon 15_classify.sql,2026-10-31T02:49:14,8603,,exasol-personal-2.3.0-local-windows-podman
 1408a3b7f3da,1000000,recon 30_penalty_view.sql,2026-10-31T02:49:23,441,,exasol-personal-2.3.0-local-windows-podman
+90b54e93c4ae,1000000,schemas,2026-11-02T18:27:02,374,,exasol-personal-2.2.0-local-macos-arm64
+90b54e93c4ae,1000000,load RAW.SWITCH_LOG,2026-11-02T18:27:02,2166,1000000,exasol-personal-2.2.0-local-macos-arm64
+90b54e93c4ae,1000000,load RAW.NPCI_SETTLEMENT,2026-11-02T18:27:04,2340,952325,exasol-personal-2.2.0-local-macos-arm64
+90b54e93c4ae,1000000,load RAW.CBS_LEDGER,2026-11-02T18:27:07,2593,940706,exasol-personal-2.2.0-local-macos-arm64
+90b54e93c4ae,1000000,load RAW.SETTLEMENT_FILE_LOG,2026-11-02T18:27:09,66,28,exasol-personal-2.2.0-local-macos-arm64
+90b54e93c4ae,1000000,settings,2026-11-02T18:27:09,1394,,exasol-personal-2.2.0-local-macos-arm64
+de39530dd73c,,recon 20_udfs.sql,2026-11-02T18:27:12,25,,exasol-personal-2.2.0-local-macos-arm64
+de39530dd73c,,recon 10_match_pass1.sql,2026-11-02T18:27:12,1521,950424,exasol-personal-2.2.0-local-macos-arm64
+de39530dd73c,,recon 10_match_pass2.sql,2026-11-02T18:27:13,2368,1901,exasol-personal-2.2.0-local-macos-arm64
+de39530dd73c,,recon 10_match_pass3.sql,2026-11-02T18:27:16,5970,940128,exasol-personal-2.2.0-local-macos-arm64
+de39530dd73c,,recon 10_match_pass4.sql,2026-11-02T18:27:22,602,578,exasol-personal-2.2.0-local-macos-arm64
+de39530dd73c,,recon 15_classify.sql,2026-11-02T18:27:22,2681,46618,exasol-personal-2.2.0-local-macos-arm64
+de39530dd73c,,recon 30_penalty_view.sql,2026-11-02T18:27:25,94,,exasol-personal-2.2.0-local-macos-arm64
+act-63EC625DB222,after-action,recon 20_udfs.sql,2026-11-02T18:58:05,27,,exasol-personal-2.2.0-local-macos-arm64
+act-63EC625DB222,after-action,recon 10_match_pass1.sql,2026-11-02T18:58:05,1123,950424,exasol-personal-2.2.0-local-macos-arm64
+act-63EC625DB222,after-action,recon 10_match_pass2.sql,2026-11-02T18:58:07,1649,1901,exasol-personal-2.2.0-local-macos-arm64
+act-63EC625DB222,after-action,recon 10_match_pass3.sql,2026-11-02T18:58:08,5615,940129,exasol-personal-2.2.0-local-macos-arm64
+act-63EC625DB222,after-action,recon 10_match_pass4.sql,2026-11-02T18:58:14,627,578,exasol-personal-2.2.0-local-macos-arm64
+act-63EC625DB222,after-action,recon 15_classify.sql,2026-11-02T18:58:15,2585,46618,exasol-personal-2.2.0-local-macos-arm64
+act-63EC625DB222,after-action,recon 30_penalty_view.sql,2026-11-02T18:58:17,72,,exasol-personal-2.2.0-local-macos-arm64

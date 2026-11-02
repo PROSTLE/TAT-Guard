@@ -21,5 +21,6 @@ If you discover a security vulnerability in TAT Guard, please report it responsi
 - Grounding guard verifies all numbers in agent responses
 - Actions use fixed SQL templates (no LLM-generated SQL)
 - Human approval is mandatory for every state change
-- UI binds to 127.0.0.1 only with CORS and Origin checks
+- UI binds to 127.0.0.1 only, with Host and Origin checks; a tunnel can publish it, behind an access code and rate limits
+- The backend's DB user owns its own schemas and has no grant on anything else
 - All executed actions are logged to AUDIT.ACTION_LOG

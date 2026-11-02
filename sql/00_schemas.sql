@@ -69,6 +69,17 @@ CREATE OR REPLACE TABLE VERIFIER.GROUND_TRUTH (
   COMP_PAID_PAISE DECIMAL(18,0)
 );
 
+-- Every payment made from the Live page and what was injected into it. Lives in VERIFIER for the same reason as the
+-- ground truth: the matcher and the agent never read it, so the verdict on the page is a real test.
+CREATE OR REPLACE TABLE VERIFIER.LIVE_PAYMENTS (
+  UPI_TXN_ID     VARCHAR(40),
+  RRN            VARCHAR(20),
+  SCENARIO       VARCHAR(30),
+  EXPECTED_CLASS VARCHAR(40),
+  SESSION_TAG    VARCHAR(20),
+  CREATED_TS     TIMESTAMP
+);
+
 -- Settings loaded by recon/pipeline.py from recon/config.yaml and facts.yaml (never typed into SQL)
 CREATE OR REPLACE TABLE RECON.SETTINGS (PARAM_NAME VARCHAR(100), PARAM_VALUE VARCHAR(2000));
 CREATE OR REPLACE TABLE RECON.TAT_RULES (

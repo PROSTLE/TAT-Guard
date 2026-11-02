@@ -1,6 +1,6 @@
 """Create (or reset) the read-only DB user the agent's MCP server logs in as.
 
-    python agent/setup_agent_user.py        # run as an admin user (EXA_USER), after recon/pipeline.py load
+    python agent/setup_agent_user.py        # run as an admin user (EXA_USER), after agent/setup_app_user.py
 
 Privileges (Exasol docs, CREATE USER / GRANT pages): CREATE SESSION, plus SELECT on schemas RAW, RECON, AUDIT.
 "When granting an object privilege on a schema, this privilege is applied to all contained schema objects",
@@ -20,6 +20,8 @@ sys.path.insert(0, str(ROOT))
 from recon.pipeline import connect  # noqa: E402
 
 READ_SCHEMAS = ("RAW", "RECON", "AUDIT")
+AGENT_GROUP = "TATGUARD_AGENT_GROUP"
+QUERY_TIMEOUT_S = 30     # DESIGN: an analyst question should never need longer on this data
 IDENT = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 PASSWORD = re.compile(r"^[A-Za-z0-9_\-.!@#%^*+=]{12,128}$")   # no quotes -> safe inside "..."
 
@@ -31,13 +33,18 @@ def main():
         raise SystemExit(f"bad user name {user!r}")
     if not PASSWORD.match(pwd):
         raise SystemExit("TATGUARD_AGENT_PASSWORD must be 12-128 chars of [A-Za-z0-9_-.!@#%^*+=]")
-    C = connect()
+    C = connect(admin=True)
     try:
         exists = C.execute("SELECT COUNT(*) FROM EXA_DBA_USERS WHERE USER_NAME = {u}", {"u": user}).fetchval()
         C.execute(f'{"ALTER" if exists else "CREATE"} USER {user} IDENTIFIED BY "{pwd}"')
         C.execute(f"GRANT CREATE SESSION TO {user}")
         for s in READ_SCHEMAS:
             C.execute(f"GRANT SELECT ON {s} TO {user}")
+        # The model writes this user's SQL, so a bad query must not be able to tie up the database. A consumer group
+        # applies to this user alone; ALTER SYSTEM would change every other project on the instance.
+        if not C.execute("SELECT COUNT(*) FROM EXA_CONSUMER_GROUPS WHERE CONSUMER_GROUP_NAME = {g}", {"g": AGENT_GROUP}).fetchval():
+            C.execute(f"CREATE CONSUMER GROUP {AGENT_GROUP} WITH PRECEDENCE = 300, CPU_WEIGHT = 100, QUERY_TIMEOUT = {QUERY_TIMEOUT_S}")
+        C.execute(f"ALTER USER {user} SET CONSUMER_GROUP = {AGENT_GROUP}")
         privs = C.execute("SELECT PRIVILEGE FROM EXA_DBA_SYS_PRIVS WHERE GRANTEE = {u} ORDER BY 1", {"u": user}).fetchall()
         objs = C.execute("SELECT OBJECT_SCHEMA, OBJECT_NAME, PRIVILEGE FROM EXA_DBA_OBJ_PRIVS WHERE GRANTEE = {u} ORDER BY 1, 2, 3",
                          {"u": user}).fetchall()

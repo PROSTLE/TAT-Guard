@@ -172,7 +172,7 @@ VALUES ({id}, {acct}, {ts}, 'CR', {amt!d}, {narr})""",
         id="A" + action_id, acct=acct, ts=as_of, amt=int(amount), narr=narr)
 
 
-def decide(C, action_id: str, approve: bool, user: str) -> dict:
+def decide(C, action_id: str, approve: bool, user: str, on_step=None) -> dict:
     user = str(user or "").strip()[:100]
     if not user:
         raise ActionError("a named human approver is required")
@@ -205,7 +205,7 @@ def decide(C, action_id: str, approve: bool, user: str) -> dict:
         else:
             C.execute(sql)
             if CFG["actions"].get("recon_after_execute"):
-                T = pipeline.Timer(C, "act-" + action_id[3:], "after-action")
+                T = pipeline.Timer(C, "act-" + action_id[3:], "after-action", on_step=on_step, csv_log=on_step is None)
                 try:
                     pipeline.cmd_recon(C, T)
                     T.flush()

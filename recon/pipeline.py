@@ -43,15 +43,26 @@ LOADS = [  # (csv file, target table)
     ("cbs_ledger.csv", "RAW.CBS_LEDGER"),
     ("settlement_file_log.csv", "RAW.SETTLEMENT_FILE_LOG"),
 ]
+RECON_COUNTS = {   # what each step produced, counted after its timer stops; the Live page shows these beside the timings
+    "10_match_pass1.sql": 'SELECT COUNT(*) FROM "RECON"."M1"',
+    "10_match_pass2.sql": 'SELECT COUNT(*) FROM "RECON"."M2"',
+    "10_match_pass3.sql": 'SELECT COUNT(*) FROM "RECON"."CBS_MATCH"',
+    "10_match_pass4.sql": 'SELECT COUNT(*) FROM "RECON"."CBS_MATCH" WHERE "MATCH_PASS" = 4',
+    "15_classify.sql": 'SELECT COUNT(*) FROM "RECON"."EXCEPTIONS"',
+}
 IMPORT_PARAMS = {"skip": 1}
 STAGE = "TGSTAGE"   # new data proves itself here first, so a bad file cannot cost the data already loaded
 CRLF = bytes([13, 10])
 
 
-def connect(user: str | None = None, password: str | None = None, dsn: str | None = None) -> pyexasol.ExaConnection:
-    """Admin connection by default; pass user AND password for another user (e.g. the read-only agent user)."""
+def connect(user: str | None = None, password: str | None = None, dsn: str | None = None,
+            admin: bool = False) -> pyexasol.ExaConnection:
+    """The app's own user when TATGUARD_APP_PASSWORD is set (agent/setup_app_user.py), else the admin user. admin=True
+    forces the admin user, for setup only. Pass user AND password for another user (e.g. the read-only agent user)."""
     if (user is None) != (password is None):
         raise ValueError("pass both user and password, or neither")   # never mix one user with another's password
+    if user is None and not admin and os.environ.get("TATGUARD_APP_PASSWORD"):
+        user, password = os.environ.get("TATGUARD_APP_USER", "TATGUARD_APP"), os.environ["TATGUARD_APP_PASSWORD"]
     kw = dict(dsn=dsn or os.environ["EXA_DSN"], user=os.environ["EXA_USER"] if user is None else user,
               password=os.environ["EXA_PASSWORD"] if password is None else password, compression=True)
     if os.environ.get("EXA_ENCRYPTION", "1") == "0":
@@ -60,8 +71,8 @@ def connect(user: str | None = None, password: str | None = None, dsn: str | Non
 
 
 class Timer:
-    def __init__(self, C, run_id: str, scale: str, on_step=None):
-        self.C, self.run_id, self.scale, self.rows = C, run_id, scale, []
+    def __init__(self, C, run_id: str, scale: str, on_step=None, csv_log: bool = True):
+        self.C, self.run_id, self.scale, self.rows, self.csv_log = C, run_id, scale, [], csv_log
         self.on_step = on_step or (lambda *a: None)   # (name, state, ms, rows): the UI import shows progress with it
 
     def step(self, name: str, fn, count_sql: str | None = None):
@@ -83,6 +94,9 @@ class Timer:
             self.C.import_from_iterable(
                 [(r[0], r[1], r[2].strftime("%Y-%m-%d %H:%M:%S"), r[3].strftime("%Y-%m-%d %H:%M:%S"), r[4], r[5])
                  for r in self.rows], ("RECON", "RUN_LOG"))
+        if not self.csv_log:      # runs from the page go to RECON.RUN_LOG only; timings.csv is the record of measured runs
+            self.rows = []
+            return
         out = ROOT / "reports" / "timings.csv"
         new = not out.exists()
         with open(out, "a", newline="", encoding="utf-8") as fh:
@@ -208,7 +222,7 @@ def cmd_recon(C, T: Timer):
         raise SystemExit(f"missing SQL step(s): {missing}")
     for f in RECON_STEPS:
         p = SQL / f
-        total += T.step(f"recon {f}", lambda p=p: script(C, p))
+        total += T.step(f"recon {f}", lambda p=p: script(C, p), RECON_COUNTS.get(f))
     print(f"  {'TOTAL recon':<34} {total:>9} ms")
     for name, q in [("exceptions", 'SELECT COUNT(*) FROM "RECON"."EXCEPTIONS"'),
                     ("open queue", 'SELECT COUNT(*) FROM "RECON"."WORK_QUEUE"')]:
@@ -216,6 +230,11 @@ def cmd_recon(C, T: Timer):
 
 
 def cmd_ingest_pending(C, T: Timer, data: pathlib.Path):
+    cmd_ingest_file(C, T, data)
+
+
+def cmd_ingest_file(C, T: Timer, data: pathlib.Path):
+    """The late settlement file arrives: load it and move the cut-off to its arrival. The caller re-runs the recon."""
     manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
     f = data / "npci_settlement_pending.csv"
     T.step("ingest pending NPCI file", lambda: C.import_from_file(str(f), ("RAW", "NPCI_SETTLEMENT"), IMPORT_PARAMS),

@@ -1,11 +1,32 @@
 # DEPLOY: run TAT Guard from scratch
 
-This is the run guide. Every command below was run on Windows 11 (amd64) on 2026-10-11. The exception is the
-macOS/Linux launcher line, which is quoted from the official Exasol Personal docs and was **not** run by us.
+This is the run guide. On macOS or Linux the short version is `bash scripts/run_demo.sh`, which does everything below.
+The numbered steps were run on Windows 11 (amd64) on 2026-10-11. `scripts/run_demo.sh` was run on macOS on Apple Silicon with
+launcher 2.2.0 on 2026-11-02, starting with Exasol installed; `exasol install local` itself was not re-run.
 Why each step looks the way it does (with sources) is in [SETUP.md](SETUP.md).
 
-> **Not yet done:** following this guide on a second, clean machine (02_CROSS_CHECK §5). Until someone does, treat
-> any step that needed knowledge outside this file as a bug in this file.
+> **Not yet done:** following this guide on a machine with nothing installed. Until someone does, treat any step that
+> needed knowledge outside this file as a bug in this file.
+
+## Run it for a jury
+
+**Before going live**, on the machine that will serve the demo:
+
+1. In **Terminal.app** on macOS: `exasol start`, or `bash scripts/run_demo.sh` for a fresh load.
+2. Put `GEMINI_API_KEY=...` in `.env`. Without it, Ask offers three prepared questions and says so. **Enable billing on the key
+   before a jury uses it**: the free tier allows only 20 requests a day per model, and one question takes 2 to 5. Do not spend
+   the free quota rehearsing on the day.
+3. `brew install cloudflared`, stop any running server, then `bash scripts/go_public.sh`. It prints the link to send, with the
+   access code in it. A judge opens it in a browser and needs nothing else.
+4. Keep the Mac on power. The script keeps it awake. Press Ctrl-C to take the link down.
+
+The link changes each time a quick tunnel starts, so start it once. For a fixed address use a named Cloudflare tunnel on
+your own domain, and set `TATGUARD_PUBLIC_HOST` to that host name.
+
+**Between judges**: open `http://127.0.0.1:8765/#/proof` on the serving machine and press **Reset the demo** (about 20 seconds).
+It also resets itself after 30 idle minutes. Everyone shares one bank, so a judge sees what the last one did until then.
+
+**If something goes wrong**: stop the script, run `exasol status`, then start again. The data is safe in Exasol.
 
 ## 0. Prerequisites
 
@@ -29,8 +50,10 @@ Why each step looks the way it does (with sources) is in [SETUP.md](SETUP.md).
 .\exasol.exe info                          # shows host 127.0.0.1, port 8563, user sys
 ```
 
-**macOS / Linux** (official docs, not run by us): `curl https://downloads.exasol.com/exasol-personal/installer.sh | sh`,
-then `exasol install local` and `exasol slc install PYTHON3`.
+**macOS / Linux** (official docs): `curl https://downloads.exasol.com/exasol-personal/installer.sh | sh`,
+then `exasol install local` and `exasol slc install PYTHON3`. On macOS the database runs in a VM, which the app reaches over
+macOS's Local Network permission. Run `exasol` from Terminal.app, or allow your editor in System Settings → Privacy & Security
+→ Local Network, or `exasol start` ends as `interrupted`. Once it is up, any app can reach it on 127.0.0.1.
 
 The initial local credentials are `sys` / `exasol`. Stop and start with `exasol stop` / `exasol start`; data survives.
 
@@ -55,11 +78,12 @@ In bash: `set -a; . ./.env; set +a`. `.env` is git-ignored; never commit it.
 
 ```powershell
 .\.venv\Scripts\python verify\v0_connect.py                                       # prints timestamp + server version
+.\.venv\Scripts\python agent\setup_app_user.py                                     # the user the app runs as: owns its own schemas only
+.\.venv\Scripts\python agent\setup_agent_user.py                                   # read-only DB user for the agent
 .\.venv\Scripts\python generator\generate.py --rows 1000000 --seed 42 --out data\1m   # SYNTHETIC data, ~1 min
 .\.venv\Scripts\python recon\pipeline.py load --data data\1m
 .\.venv\Scripts\python verify\v1_load.py --data data\1m                            # loads ground truth, checks counts
 .\.venv\Scripts\python recon\pipeline.py recon
-.\.venv\Scripts\python agent\setup_agent_user.py                                   # read-only DB user for the agent
 ```
 
 ## 5. Start the UI
@@ -70,29 +94,17 @@ In bash: `set -a; . ./.env; set +a`. `.env` is git-ignored; never commit it.
 The first start downloads the pinned `exasol-mcp-server==2.2.0` through uvx (a few seconds after that). **Assistant** →
 *How it answers* shows deterministic playbooks unless `GEMINI_API_KEY` is set, in which case it shows Google Gemini.
 
-The app opens on Home, with a **Guided demo** that walks the real pages and writes nothing. The sidebar groups the pages
-by job: Act (Today, Work Queue, Approvals), Understand (Insights, Transactions, Assistant), Prove (Audit Log, Reports,
-Data Sources). Every figure is a live query; clicking a KPI, a break type or a TAT status opens the matching filter in the Work Queue, and clicking
-any row opens the transaction drawer (what the switch, NPCI and CBS each recorded, plus its TAT clock).
+The app opens on **Live**. A checklist at the top follows the demo path and fills in as each step is done.
 
-Demo flow: set your name (top right; it goes into the audit log) → **Assistant**: "Why did breaks spike?" → it
-proposes chasing the late settlement file → ask **What is our ₹ exposure and what should we fix first?**, which proposes the
-rank 1 reversal → **Approvals**: **Approve**, then confirm → the recon re-runs; the case becomes REVERSED and reappears
-as *Compensation due* → propose that from the **Work Queue**, change the name at top right (nobody can approve their own
-proposal), and approve it → it leaves the queue. Every step is in **Audit Log**, and
-**Export CSV** on the Work Queue downloads the current filter.
+Demo flow: **Live**: press Pay with "Money leaves, payee gets nothing" → the verdict names what happened → **Move the clock 2 days**
+and watch the figures move → **Open this case** → as Asha, **Propose reversal** → switch to Vikram at the top right → **Approve**
+→ the reconciliation re-runs and the case closes → **Ask**: "Why did breaks spike?" → **Deliver the late file** on Live and watch
+the breaks clear → **Proof**: live accuracy and the audit log. **Export** on Cases downloads the current view.
 
-**Connect & Import** does step 4 from the page: connect to an Exasol database (the password stays in the server's
-memory), choose the sample dataset, four uploaded CSV files or a schema holding the four tables, and press **Import and
-reconcile**. It runs the same `recon/pipeline.py` code, replaces all data in RAW and RECON, and logs the same timings.
-CSV headers must match `sql/00_schemas.sql` exactly; these are stand-in layouts, so a real NPCI, switch or CBS file needs
-converting first. Only public or synthetic data belongs here: there is no login. An import empties the ground truth, so
-run `verify/v1_load.py --data data/1m` again before any `verify/` script. Uploads and schemas load into a staging schema and
-are checked first, so a bad file leaves the current data alone.
+The import API (`/api/connect`, `/api/upload`, `/api/import`) has no page, and is served to a local install only, never over a public link.
 
-The late file "arrives" with `.\.venv\Scripts\python recon\pipeline.py ingest-pending --data data\1m`.
-To reset the demo, repeat the commands in step 4 from `pipeline.py load`, adding `--reset-audit` to the load to empty
-the proposal and audit tables (they are append-only otherwise, so old actions would refer to data that was reloaded).
+The late file also "arrives" with `.\.venv\Scripts\python recon\pipeline.py ingest-pending --data data\1m`.
+To reset the demo from a terminal, repeat the commands in step 4 from `pipeline.py load`, adding `--reset-audit` to the load.
 
 ## 6. Verify (what the reports in `reports/` were produced with)
 
@@ -120,5 +132,8 @@ untouched CSVs.
 | `insufficient privileges` in agent answers | Expected for anything outside RAW/RECON/AUDIT; re-run `agent/setup_agent_user.py` after a fresh DB |
 | UI says `agent error` | Hover the badge; usually `TATGUARD_AGENT_PASSWORD` missing or `uvx` not on PATH |
 | `WinError 10061` / connection refused on 8563, although `exasol info` says `running` | After a Windows reboot Podman's machine is stopped and `exasol info` still shows the last known state. Run `podman machine start`, then `exasol start` (seen 2026-10-18) |
-| UI returns `403 request not from the TAT Guard page` | Open the UI as `http://127.0.0.1:8765` or `http://localhost:8765`; other host names are refused on purpose (DNS-rebinding guard) |
+| UI returns `403 request not from the TAT Guard page` | Open the UI as `http://127.0.0.1:8765` or `http://localhost:8765`; other host names are refused on purpose (DNS-rebinding guard). For a public name, set `TATGUARD_PUBLIC_HOST` |
+| `exasol start` ends `interrupted`, `no route to host`, on macOS | The app that ran it lacks the Local Network permission. Run `exasol stop; exasol start` from Terminal.app. The `stop` matters: the old VM's forwarder stays blocked until it is replaced |
+| Ask says no AI model is configured | Add `GEMINI_API_KEY` to `.env` and restart the server |
+| Ask says the model has used up its quota | The free tier's daily limit ran out. Enable billing on the key, or wait for it to reset |
 | `pytest` collects `vendor_refs/` and errors | Run from the repo root so `pytest.ini` applies (`testpaths = tests`) |

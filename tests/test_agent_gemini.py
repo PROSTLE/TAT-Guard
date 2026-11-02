@@ -92,3 +92,119 @@ def test_proposal_id_may_be_quoted(run):
     out, _ = run([reply(call("propose_action", {"action_type": "POST_REVERSAL", "target_ref": "E1", "rationale": "r"})),
                   reply(types.Part(text="Proposed PA-1."))])
     assert out["grounded"] and out["proposal"] == {"action_id": "PA-1"}
+
+
+def test_earlier_turns_reach_the_model_so_a_follow_up_has_context(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    client = FakeClient([reply(types.Part(text="Done."))])
+    monkeypatch.setattr(agent_mod, "_gemini_client", lambda: client)
+    a = agent_mod.Agent(FakeReader(), lambda *x: {}, ACTION_TYPES)
+    a.ask("And that bank?", history=[{"q": "Which bank is worst?", "a": "BNK01."}])
+    sent = client.sent[0][1]
+    assert [c.role for c in sent] == ["user", "model", "user"] and sent[0].parts[0].text == "Which bank is worst?"
+
+
+def test_each_query_is_reported_as_it_runs(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    client = FakeClient([reply(call("run_sql", {"sql": "SELECT 1"})), reply(types.Part(text="There are 44807."))])
+    monkeypatch.setattr(agent_mod, "_gemini_client", lambda: client)
+    steps = []
+    out = agent_mod.Agent(FakeReader(), lambda *x: {}, ACTION_TYPES).ask("How many?", on_step=steps.append)
+    assert steps == [{"kind": "sql", "sql": "SELECT 1", "ms": 1, "rows": 1}] and out["grounded"]
+
+
+def test_a_failed_query_goes_back_to_the_model_and_is_shown(monkeypatch):
+    class Bad(FakeReader):
+        def query(self, sql):
+            raise RuntimeError("object X not found")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    client = FakeClient([reply(call("run_sql", {"sql": "SELECT X"})), reply(types.Part(text="I don't have that data."))])
+    monkeypatch.setattr(agent_mod, "_gemini_client", lambda: client)
+    steps = []
+    a = agent_mod.Agent(Bad(), lambda *x: {}, ACTION_TYPES)
+    out = a.ask("x", on_step=steps.append)
+    assert steps[0]["error"] == "object X not found" and out["answer"] == "I don't have that data."
+
+
+def test_when_the_model_fails_the_answer_says_it_did_not_come_from_the_model(monkeypatch):
+    class Down:
+        models = None
+
+    def fail():
+        raise ConnectionError("quota")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(agent_mod, "_gemini_client", fail)
+    a = agent_mod.Agent(FakeReader(), lambda *x: {}, ACTION_TYPES)
+    out = a.ask("What is the weather?")
+    assert "not the model" in out["fallback"] and out["queries"] == []
+
+
+def test_the_prompt_carries_the_real_columns_and_keeps_the_rules():
+    text = agent_mod.system_prompt("RECON.EXCEPTIONS: EXC_ID, CLASS")
+    assert "RECON.EXCEPTIONS: EXC_ID, CLASS" in text and "SYNTHETIC" in text and "untrusted" in text
+
+
+def _down(code):
+    e = RuntimeError("busy")
+    e.code = code
+    return e
+
+
+def test_a_busy_model_hands_the_whole_question_to_the_next_one(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(agent_mod, "MODELS", ["first", "second"])
+    tried = []
+
+    def turn(self, question, history, on_step, model):
+        tried.append(model)
+        if model == "first":
+            raise _down(503)
+        return {"mode": "gemini", "answer": "ok", "queries": [], "grounded": True, "ungrounded": [], "proposal": None}
+    monkeypatch.setattr(agent_mod.Agent, "_gemini", turn)
+    a = agent_mod.Agent(FakeReader(), lambda *x: {}, ACTION_TYPES)
+    a.good_model = "first"
+    steps = []
+    out = a.ask("x", on_step=steps.append)
+    assert tried == ["first", "second"] and out["model"] == "second" and a.good_model == "second"
+    assert steps == [{"kind": "note", "text": "first is busy, trying another model"}]
+    tried.clear()
+    a.ask("again")
+    assert tried == ["second"]        # the next question goes straight to the model that worked
+
+
+def test_a_refused_request_does_not_wander_through_every_model(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(agent_mod, "MODELS", ["first", "second"])
+    tried = []
+
+    def turn(self, question, history, on_step, model):
+        tried.append(model)
+        raise _down(400)
+    monkeypatch.setattr(agent_mod.Agent, "_gemini", turn)
+    out = agent_mod.Agent(FakeReader(), lambda *x: {}, ACTION_TYPES).ask("x")
+    assert len(tried) == 1 and "not the model" in out["fallback"]
+
+
+@pytest.mark.parametrize("code,expected", [(429, True), (503, True), (500, True), (400, False), (403, False), (None, False)])
+def test_only_passing_failures_are_retried(code, expected):
+    assert agent_mod.retryable(_down(code)) is expected
+
+
+def test_timeouts_are_retried():
+    assert agent_mod.retryable(TimeoutError()) and agent_mod.retryable(type("ReadTimeout", (Exception,), {})())
+
+
+def test_a_paise_figure_may_be_quoted_in_rupees():
+    a = agent_mod.Agent(FakeReader(), lambda *x: {}, ACTION_TYPES)
+    results = [{"columns": ["N", "ADDED_PAISE"], "rows": [[5, 320000]]}]
+    assert a._guarded("It adds ₹3,200 tomorrow across 5 cases.", results)["grounded"]
+
+
+def test_only_a_paise_column_gets_that_conversion():
+    a = agent_mod.Agent(FakeReader(), lambda *x: {}, ACTION_TYPES)
+    assert not a._guarded("About 3,200 of them.", [{"columns": ["N"], "rows": [[320000]]}])["grounded"]
+
+
+def test_a_number_worked_out_in_the_models_head_is_still_refused():
+    a = agent_mod.Agent(FakeReader(), lambda *x: {}, ACTION_TYPES)
+    assert not a._guarded("That is ₹640 a case.", [{"columns": ["N", "ADDED_PAISE"], "rows": [[5, 320000]]}])["grounded"]

@@ -1,6 +1,6 @@
 # TAT Guard development tasks
 
-.PHONY: test lint generate load recon verify verify-v5 ui clean
+.PHONY: test lint generate load recon verify verify-v5 ui demo public clean
 
 test:
 	pytest -v tests/
@@ -39,6 +39,12 @@ verify-v5:
 
 ui:
 	python ui/server.py
+
+demo:
+	bash scripts/run_demo.sh
+
+public:
+	bash scripts/go_public.sh
 
 clean:
 	rm -rf data/ __pycache__ */__pycache__
