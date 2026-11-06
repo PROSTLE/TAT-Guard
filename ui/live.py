@@ -33,7 +33,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from agent import actions  # noqa: E402
 from recon import pipeline  # noqa: E402
-from ui import api  # noqa: E402
+from ui import api, sim  # noqa: E402
 from verify.v2_accuracy import CONFUSION_SQL  # noqa: E402
 
 GEN = yaml.safe_load(open(ROOT / "generator" / "config.yaml", encoding="utf-8"))
@@ -79,7 +79,15 @@ MAX_STORM_ROWS = 200_000   # DESIGN: one outage must not outgrow the demo instan
 MAX_LIVE_ROWS = 1_000_000  # DESIGN: a reset is due long before this
 FEED_SIZE = 300
 BATCH_SIZE = 20            # DESIGN: payments that may share one reconciliation run
-JOBS_KEPT = 200
+JOBS_KEPT = 600
+CLASS_WORDS = {"DEBIT_NO_CREDIT": "debit, no credit", "DUPLICATE_POSTING": "debited twice", "AMOUNT_MISMATCH": "wrong amount",
+               "NPCI_SUCCESS_NO_CBS": "paid, never debited"}
+# Exceptions that belong to simulated traffic are scored by sim.SIM_CONFUSION_SQL, which knows what has arrived so far
+BASE_CONFUSION_SQL = CONFUSION_SQL.replace('pr AS (SELECT "UPI_TXN_ID", "CLASS" FROM "RECON"."EXCEPTIONS")',
+    """pr AS (SELECT e."UPI_TXN_ID", e."CLASS" FROM "RECON"."EXCEPTIONS" e
+            WHERE NOT EXISTS (SELECT 1 FROM "VERIFIER"."SIM_TRUTH" s WHERE s."RRN" = e."RRN")
+            AND COALESCE(e."CBS_ENTRY_ID", '-') NOT LIKE 'DTGB%' AND COALESCE(e."CBS_ENTRY_ID", '-') NOT LIKE 'ETGB%')""")
+assert BASE_CONFUSION_SQL != CONFUSION_SQL
 
 
 class Busy(ValueError):
@@ -202,6 +210,8 @@ class Engine:
         self.idle_reset_s, self.last_active, self.dirty = idle_reset_s, time.time(), False
         self.stop = False
         self.manifest = json.loads((self.data / "manifest.json").read_text(encoding="utf-8")) if (self.data / "manifest.json").exists() else {}
+        days = int(self.manifest.get("days") or GEN["calendar"]["days"])
+        self.sim = sim.Simulator(self, int(os.environ.get("TATGUARD_SIM_DAILY") or int(self.manifest.get("rows") or 1_000_000) // days))
         threading.Thread(target=self._loop, daemon=True, name="live-worker").start()
         if idle_reset_s:
             threading.Thread(target=self._idle_loop, daemon=True, name="live-idle").start()
@@ -294,20 +304,23 @@ class Engine:
             if self.stop:
                 return []
             batch = [self.pending.popleft()]
-            while batch[0]["kind"] == "payment" and self.pending and self.pending[0]["kind"] == "payment" and len(batch) < BATCH_SIZE:
+            shared = ("payment", "sim_tick")      # visitors' payments ride along with the bank's traffic in one run
+            while (batch[0]["kind"] in shared and self.pending and self.pending[0]["kind"] in shared and len(batch) < BATCH_SIZE
+                   and not (self.pending[0]["kind"] == "sim_tick" and any(j["kind"] == "sim_tick" for j in batch))):
                 batch.append(self.pending.popleft())
             return batch
 
     def _loop(self):
         handlers = {"payment": self._do_payments, "storm": self._do_storm, "clock": self._do_clock,
-                    "late_file": self._do_late_file, "decision": self._do_decision, "reset": self._do_reset}
+                    "late_file": self._do_late_file, "decision": self._do_decision, "reset": self._do_reset, "sim_tick": self._do_sim_tick}
         while not self.stop:
             batch = self._take()
             if not batch:
                 continue
+            kind = "sim_tick" if any(j["kind"] == "sim_tick" for j in batch) else batch[0]["kind"]
             self.working = batch[0]["title"]
             try:
-                self.writer.run(lambda C: handlers[batch[0]["kind"]](C, batch))
+                self.writer.run(lambda C: handlers[kind](C, batch))
             except Exception as e:  # shown to the visitor; the worker must outlive any one job
                 msg = f"{type(e).__name__}: {e}"[:400]
                 self.log("System", "That job failed", msg, tone="bad")
@@ -414,7 +427,14 @@ class Engine:
 
     # ------------------------------------------------------------------ handlers
     def _do_payments(self, C, batch):
-        ts = self._as_of(C)
+        ts = self._write_payments(C, batch, self._as_of(C))
+        self._set_as_of(C, ts)
+        names = ", ".join(sorted({j["payment"]["payee"] for j in batch}))
+        self._recon(C, f"Reconciling every payment in Exasol, including yours ({names})", batch)
+        self._settle_payments(C, batch)
+
+    def _write_payments(self, C, batch, ts: dt.datetime) -> dt.datetime:
+        """A visitor's payments as rows in RAW. Their NPCI record goes in at once, so the verdict does not wait for a file."""
         for job in batch:
             job["state"] = "writing"
             p = job["payment"]
@@ -437,15 +457,53 @@ class Engine:
                          VALUES ({u}, {s}, {e}, {t}, {d}, {a!d})""",
                       {"u": uid, "s": p["scenario"].upper(), "e": expected, "t": p["txn_type"], "d": str(ts.date()), "a": p["paise"]})
             job["records"] = self._read_back(C, rrn)
-        self._set_as_of(C, ts)
-        names = ", ".join(sorted({j["payment"]["payee"] for j in batch}))
-        self._recon(C, f"Reconciling every payment in Exasol, including yours ({names})", batch)
+        return ts
+
+    def _settle_payments(self, C, batch):
         for job in batch:
             job["verdict"] = self._verdict(C, job)
             job["state"] = "done"
             v = job["verdict"]
             self.log("Pipeline", f"Verdict for {job['payment']['payee']}: {v['class'] or 'clean'}",
                      tone="good" if v["correct"] else "bad")
+
+    def _do_sim_tick(self, C, batch):
+        """The bank's own traffic since the last tick, plus any visitor payments waiting, then one reconciliation."""
+        tick = next(j for j in batch if j["kind"] == "sim_tick")
+        pays = [j for j in batch if j["kind"] == "payment"]
+        try:
+            tick["state"] = "writing"
+            if not self.sim.running:          # paused while this tick waited
+                if pays:
+                    self._do_payments(C, pays)
+                tick["state"] = "done"
+                return
+            t0 = self._as_of(C)
+            t1 = self.sim.window(C, t0)
+            last = self._write_payments(C, pays, t0) if pays else t0
+            out = self.sim.write(C, t0, t1)
+            now = max(t1, last)
+            self._set_as_of(C, now)
+            declined = out["made"].get("BUSINESS_DECLINE", 0)
+            self.log("Bank", f"Bank time {t0:%d %b %H:%M} to {now:%H:%M}: {out['payments']:,} UPI payments came in, {declined:,} declined by the customer's bank",
+                     rows=out["payments"])
+            self._recon(C, f"Reconciling the bank's traffic up to {now:%d %b %H:%M}", batch)
+            found = self.sim.after_recon(C, now)
+            if pays:
+                self._settle_payments(C, pays)
+            if found:
+                self.log("Pipeline", "Caught " + ", ".join(f"{n} {CLASS_WORDS.get(c, c)}" for c, n in sorted(found.items(), key=lambda x: -x[1])),
+                         tone="bad")
+            tick["state"] = "done"
+            self.sim.failures = 0
+        except Exception:
+            self.sim.failures += 1
+            if self.sim.failures >= 3:
+                self.sim.running = False
+                self.sim.note = "The bank paused itself after three failed ticks. See the activity panel."
+            raise
+        finally:
+            self.sim.queued = False
 
     def _read_back(self, C, rrn: str) -> dict:
         """What the page shows is what Exasol holds, not what was sent."""
@@ -546,7 +604,9 @@ FROM x WHERE NOT EXISTS (SELECT 1 FROM "RAW"."SWITCH_LOG" s WHERE s."RRN" = x."R
         job["state"] = "writing"
         if not self.manifest.get("pending_files"):
             raise Busy("This dataset has no late file.")
-        if not C.execute("""SELECT COUNT(*) FROM "RAW"."SETTLEMENT_FILE_LOG" WHERE "ARRIVED_TS" IS NULL""").fetchval():
+        if not any(C.execute("""SELECT COUNT(*) FROM "RAW"."SETTLEMENT_FILE_LOG" WHERE "ARRIVED_TS" IS NULL
+                                AND "SETTLEMENT_DT" = {d} AND "CYCLE_NO" = {c!d}""", {"d": p["SETTLEMENT_DT"], "c": p["CYCLE_NO"]}).fetchval()
+                   for p in self.manifest["pending_files"]):
             raise Busy("The late file has already arrived.")
         before = C.execute("""SELECT COUNT(*) FROM "RECON"."EXCEPTIONS" WHERE "CLASS" = 'LATE_FILE'""").fetchval()
         T = pipeline.Timer(C, "live-" + uuid.uuid4().hex[:10], "live", csv_log=False)
@@ -579,6 +639,7 @@ FROM x WHERE NOT EXISTS (SELECT 1 FROM "RAW"."SWITCH_LOG" s WHERE s."RRN" = x."R
     def _do_reset(self, C, batch):
         job = batch[0]
         job["state"] = "writing"
+        self.sim.stop_for_reset()
         T = pipeline.Timer(C, "reset-" + uuid.uuid4().hex[:10], "reset", csv_log=False)
         pipeline.cmd_load(C, T, self.data, reset_audit=True)
         C.import_from_file(str(self.data / "ground_truth.csv"), ("VERIFIER", "GROUND_TRUTH"), pipeline.IMPORT_PARAMS)
@@ -618,21 +679,35 @@ FROM x WHERE NOT EXISTS (SELECT 1 FROM "RAW"."SWITCH_LOG" s WHERE s."RRN" = x."R
             mine = [self._public(j) for j in self.jobs.values() if j["session"] == session][-12:]
             queued = len(self.pending)
         return {"seq": seq, "events": events, "run": copy.deepcopy(self.run_state) if self.run_state and self.run_state["state"] == "running" else None,
-                "working": self.working, "last_run": self.last_run, "queued": queued, "mine": mine, "kpi": self.kpi()}
+                "working": self.working, "last_run": self.last_run, "queued": queued, "mine": mine, "kpi": self.kpi(),
+                "sim": {**self.sim.public(), "stats": self.sim.stats()},
+                "late_file": [{"SETTLEMENT_DT": p["SETTLEMENT_DT"], "CYCLE_NO": p["CYCLE_NO"]} for p in self.manifest.get("pending_files", [])]}
 
     def verify(self) -> dict:
         """Live accuracy: every break the reconciliation reports against what was injected, including visitors' payments."""
         def go(C):
-            rows = C.execute(CONFUSION_SQL).fetchall()
+            self.sim.ensure_tables(C)
+            rows = C.execute(BASE_CONFUSION_SQL).fetchall() + [("SIM",) + tuple(r) for r in C.execute(sim.SIM_CONFUSION_SQL).fetchall()]
             mine = C.execute("""SELECT COUNT(*), SUM(CASE WHEN COALESCE(p."EXPECTED_CLASS", '-') = COALESCE(e."CLASS", '-') THEN 1 ELSE 0 END)
                                 FROM "VERIFIER"."LIVE_PAYMENTS" p LEFT JOIN "RECON"."EXCEPTIONS" e ON e."RRN" = p."RRN" """).fetchone()
             orphan = C.execute("""SELECT COUNT(*) FROM "RECON"."EXCEPTIONS" WHERE "UPI_TXN_ID" IS NULL""").fetchval()
             return rows, mine, orphan
         t0 = time.perf_counter()
         rows, mine, orphan = self.fast.run(go)
-        classes = [{"class": c, "tp": int(tp), "fp": int(fp), "fn": int(fn)} for c, tp, fp, fn in rows if c is not None]
+        merged, simulated = {}, {"tp": 0, "fp": 0, "fn": 0}
+        for r in rows:
+            is_sim = r[0] == "SIM"
+            c, tp, fp, fn = r[1:] if is_sim else r
+            if c is None:
+                continue
+            m = merged.setdefault(c, {"class": c, "tp": 0, "fp": 0, "fn": 0})
+            for k, v in (("tp", tp), ("fp", fp), ("fn", fn)):
+                m[k] += int(v or 0)
+                if is_sim:
+                    simulated[k] += int(v or 0)
+        classes = sorted(merged.values(), key=lambda m: m["class"])
         tp, fp, fn = (sum(c[k] for c in classes) for k in ("tp", "fp", "fn"))
-        return {"classes": classes, "tp": tp, "fp": fp, "fn": fn, "live_total": int(mine[0] or 0), "live_correct": int(mine[1] or 0),
+        return {"classes": classes, "tp": tp, "fp": fp, "fn": fn, "sim": simulated, "live_total": int(mine[0] or 0), "live_correct": int(mine[1] or 0),
                 "orphan_debits": int(orphan), "ms": round((time.perf_counter() - t0) * 1000)}
 
     def close(self):
@@ -644,7 +719,8 @@ FROM x WHERE NOT EXISTS (SELECT 1 FROM "RAW"."SWITCH_LOG" s WHERE s."RRN" = x."R
 def meta() -> dict:
     return {"scenarios": [{"key": k, **{f: v[f] for f in ("label", "hint", "expected")}} for k, v in SCENARIOS.items()],
             "banks": [f"BNK{i + 1:02d}" for i in range(int(IDS["counterparty_banks"]))], "max_amount": MAX_AMOUNT_RS,
-            "max_storm": MAX_STORM_ROWS, "steps": [{"key": k, "label": l} for k, l in STEPS.values()]}
+            "max_storm": MAX_STORM_ROWS, "steps": [{"key": k, "label": l} for k, l in STEPS.values()],
+            "speeds": [{"value": k, "label": v} for k, v in sim.SPEEDS.items()]}
 
 
 def data_dir() -> pathlib.Path:

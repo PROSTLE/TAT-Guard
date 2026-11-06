@@ -111,27 +111,53 @@
   const errorBox = msg => `<div class="error-box"><div>${esc(msg)}</div><div class="row"><a class="btn sm" href="#/connect">Connect and import</a><button class="btn sm" type="button" data-retry><i data-lucide="refresh-cw"></i>Try again</button></div></div>`;
   const sizeOptions = (cur) => state.meta.page_sizes.map(n => `<option ${n === cur ? "selected" : ""}>${n}</option>`).join("");
 
-  // ------------------------------------------------------------------ who is acting (decided by the server's session, see ui/auth.py)
+  // ------------------------------------------------------------------ who is acting: your own name and role, held by the server (ui/auth.py)
+  const ROLE_HELP = { analyst: "Finds cases and proposes fixes", approver: "Approves or rejects what others propose" };
   const who = {
     get() { return state.session && state.session.persona ? state.session.persona.name : ""; },
     role() { return state.session && state.session.persona ? state.session.persona.role : ""; },
     render() {
-      const n = this.get();
-      $("#who-name").textContent = n || "Sign in";
+      const n = this.get(), s = state.session;
+      $("#who-name").textContent = n || "Set your name";
+      $("#who-name").nextElementSibling.textContent = n && s ? s.roles[this.role()] : "Acting as";
       $("#who-avatar").textContent = n.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
-      const s = state.session;
+      if (!n) $("#who-avatar").innerHTML = '<i data-lucide="user-round"></i>';
+      icons($("#who-avatar"));
       if (!s) return;
-      $("#who-opts").innerHTML = Object.entries(s.personas).map(([role, p]) => `<button class="who-opt ${role === this.role() ? "on" : ""}" data-role="${esc(role)}" type="button"><b>${esc(p.name)}</b><small>${esc(p.title)}</small></button>`).join("");
-      $$("[data-role]", $("#who-opts")).forEach(b => b.addEventListener("click", async () => {
-        try {
-          state.session = await call("/api/session", { role: b.dataset.role });
-          $("#who-pop").hidden = true; this.render(); toast(`You are now ${esc(this.get())}.`); route();
-        } catch (e) { toast(esc(e.message), true); }
+      $("#who-opts").innerHTML = `<label for="who-input">Your name, as written to the audit log</label>
+        <input id="who-input" maxlength="40" placeholder="e.g. Priya Nair" autocomplete="name" value="${esc(n)}">
+        <span class="who-label">Your role</span>
+        ${Object.entries(s.roles).map(([role, title]) => `<button class="who-opt ${role === this.role() ? "on" : ""}" data-role="${esc(role)}" type="button"><b>${esc(title)}</b><small>${esc(ROLE_HELP[role] || "")}</small></button>`).join("")}
+        <div class="row end"><button class="btn primary sm" id="who-save" type="button">Save</button></div>
+        <p class="who-note">A proposal needs a second person to approve it. Working alone? Save under another name to play the approver.</p>
+        <div class="who-online" id="who-online"></div>`;
+      let role = this.role() || "analyst";
+      $$("[data-role]", $("#who-opts")).forEach(b => b.addEventListener("click", () => {
+        role = b.dataset.role; $$("[data-role]", $("#who-opts")).forEach(x => x.classList.toggle("on", x === b));
       }));
+      const save = async () => {
+        try {
+          state.session = await call("/api/session", { name: $("#who-input").value, role });
+          $("#who-pop").hidden = true; this.render(); toast(`You are ${esc(this.get())}, ${esc(state.session.roles[this.role()].toLowerCase())}.`); route();
+        } catch (e) { toast(esc(e.message), true); }
+      };
+      $("#who-save").addEventListener("click", save);
+      $("#who-input").addEventListener("keydown", e => { if (e.key === "Enter") save(); });
+      this.people(s.online);
     },
-    other(role) { const p = state.session.personas[role]; return `${esc(p.name)}, ${esc(p.title.toLowerCase())}`; },
+    people(list) {
+      const el = $("#who-online");
+      if (!el || !list) return;
+      el.innerHTML = list.length ? `<span class="who-label">Working now</span>${list.map(p => `<span class="person"><i class="dot ${esc(p.role)}"></i>${esc(p.name)} <small>${esc(p.role)}</small></span>`).join("")}` : "";
+    },
+    require(role) {
+      if (this.get() && (!role || this.role() === role)) return true;
+      $("#who-pop").hidden = false; $("#who-input") && $("#who-input").focus();
+      toast(this.get() ? `This needs the ${esc(state.session.roles[role].toLowerCase())} role. Change it under Acting as.` : "Set your name first. It is written to the audit log with every decision.", true);
+      return false;
+    },
   };
-  $("#who-btn").addEventListener("click", () => { const p = $("#who-pop"); p.hidden = !p.hidden; });
+  $("#who-btn").addEventListener("click", () => { const p = $("#who-pop"); p.hidden = !p.hidden; if (!p.hidden && $("#who-input")) $("#who-input").focus(); });
   document.addEventListener("click", e => { if (!e.target.closest(".who")) $("#who-pop").hidden = true; });
 
   // ------------------------------------------------------------------ shell: connection, pending, context bar
@@ -309,6 +335,7 @@
       <th class="n">#</th><th>Transaction</th><th class="n">Amount</th><th>Break type</th><th>Clock</th><th class="n" title="What this case adds to the compensation bill by tomorrow if it stays open">Adds tomorrow</th><th>Action</th></tr></thead>`;
 
   async function propose(kind, refs) {
+    if (!who.require("analyst")) return false;
     try {
       const r = await call("/api/propose", { action_type: kind, targets: refs });
       const ok = r.results.filter(x => !x.error), bad = r.results.filter(x => x.error);
@@ -506,7 +533,8 @@
       const v = await call("/api/live/verify");
       if (!$("#live-score")) return;
       el.innerHTML = `<div class="score"><div><b>${fmt.n(v.tp)}</b><small>breaks found correctly</small></div><div><b>${fmt.n(v.fp)}</b><small>false alarms</small></div><div><b>${fmt.n(v.fn)}</b><small>missed</small></div>
-        ${v.live_total ? `<div><b>${fmt.n(v.live_correct)} of ${fmt.n(v.live_total)}</b><small>live payments classified correctly</small></div>` : ""}</div>
+        ${v.live_total ? `<div><b>${fmt.n(v.live_correct)} of ${fmt.n(v.live_total)}</b><small>live payments classified correctly</small></div>` : ""}
+        ${v.sim && (v.sim.tp + v.sim.fp + v.sim.fn) ? `<div><b>${fmt.n(v.sim.tp)} right · ${fmt.n(v.sim.fp + v.sim.fn)} wrong</b><small>in the bank's running traffic, as of now</small></div>` : ""}</div>
         <p class="subtle">Compared just now in ${secs(v.ms)} with what was injected. The answer key sits in a schema the matcher and the assistant cannot read. A perfect score means the engine finds what this generator injects; it says nothing about real bank data.</p>`;
     } catch (e) { el.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
   }
@@ -515,11 +543,26 @@
     const m = state.meta.live, sc = Object.fromEntries(m.scenarios.map(s => [s.key, s]));
     const bankOptions = m.banks.map(b => `<option>${esc(b)}</option>`).join("");
     const canReset = state.session.can_reset;
-    app.innerHTML = head("Make a payment fail. Watch Exasol catch it.", "This is a real Exasol database. Your payment becomes real rows, and the same reconciliation that handles every other payment decides what happened.",
+    app.innerHTML = head("Watch the bank run. Then break it.", "This is a real Exasol database. The bank's UPI traffic flows in, NPCI files arrive cycle by cycle and payee banks post reversals, while you and anyone else signed in work the cases.",
       `<button class="btn" data-days="1" type="button"><i data-lucide="fast-forward"></i>Move the clock 1 day</button>${canReset ? `<button class="btn" id="live-reset" type="button"><i data-lucide="rotate-ccw"></i>Reset the demo</button>` : ""}`) + `
+      <section class="card bank" id="bank-card">
+        <div class="bank-head"><div><p class="eyebrow">Run the bank</p><h3 id="bank-clock">…</h3><p class="subtle" id="bank-status">Closed</p></div>
+          <div class="bank-ctl"><div class="seg-pick" id="bank-speed">${m.speeds.map(s => `<button data-speed="${esc(s.value)}" type="button">${esc(s.label)}</button>`).join("")}</div>
+            <button class="btn gold" id="bank-go" type="button"><i data-lucide="play"></i><span>Open the bank</span></button></div></div>
+        <div class="bank-stats" id="bank-stats"></div>
+        <div class="grid">
+          <div class="span-7"><h4 class="mini">Just caught</h4><div id="bank-recent"><div class="empty">Breaks appear here the moment the reconciliation finds them.</div></div></div>
+          <div class="span-5"><h4 class="mini">Make something go wrong</h4>
+            <div class="field-row"><select class="live-select" id="bank-outage-bank" aria-label="Bank to take down">${bankOptions}</select>
+              <button class="btn" id="bank-outage" type="button"><i data-lucide="zap-off"></i>Take it down</button></div>
+            <button class="btn wide" id="bank-delay" type="button" style="margin-top:8px"><i data-lucide="file-clock"></i>Delay the next NPCI file</button>
+            <p class="subtle" id="bank-incident" style="margin-top:8px"></p>
+            <h4 class="mini" style="margin-top:14px">Working now</h4><div id="bank-people" class="people"></div></div>
+        </div>
+      </section>
       <div class="grid">
         <div class="span-4 live-stack">
-          <section class="card" id="live-form">${`<div class="card-head"><h3><span class="hicon"><i data-lucide="send"></i></span>1. Make a payment</h3></div>`}<div class="card-body"><form id="pay-form">
+          <section class="card" id="live-form">${`<div class="card-head"><h3><span class="hicon"><i data-lucide="send"></i></span>1. Make one payment yourself</h3></div>`}<div class="card-body"><form id="pay-form">
             <label class="field"><span>Pay to</span><input id="pay-to" maxlength="40" required autocomplete="off" value="${esc(pick(LIVE_NAMES.P2P))}"></label>
             <div class="field-row"><label class="field"><span>Amount (₹)</span><input id="pay-amount" type="number" min="1" max="${esc(m.max_amount)}" step="0.01" value="1250" required></label>
             <label class="field"><span>Payee bank</span><select id="pay-bank">${bankOptions}</select></label></div>
@@ -543,7 +586,47 @@
         <div class="span-12">${card("Is it right?", "badge-check", `<div id="live-score"><div class="empty">Checking…</div></div>`, `<button class="btn sm" id="score-again" type="button"><i data-lucide="refresh-cw"></i>Check again</button>`)}</div>
       </div>`;
     let scenario = "debit_no_credit", type = "P2P", jobId = null, stamp = "", since = 0, watch = {};
-    $("#pay-bank").value = "BNK03"; $("#storm-bank").value = "BNK07";
+    $("#pay-bank").value = "BNK03"; $("#storm-bank").value = "BNK07"; $("#bank-outage-bank").value = "BNK02";
+    let speed = 5;
+    const simCall = async (action, extra = {}) => {
+      try { drawBank(await call("/api/live/sim", { action, speed, ...extra })); } catch (e) { toast(esc(e.message), true); }
+    };
+    $$("[data-speed]", app).forEach(b => b.addEventListener("click", () => { speed = Number(b.dataset.speed); simCall("speed"); }));
+    $("#bank-go").addEventListener("click", () => simCall(state.bankRunning ? "pause" : "start"));
+    $("#bank-outage").addEventListener("click", () => simCall("outage", { bank: $("#bank-outage-bank").value }));
+    $("#bank-delay").addEventListener("click", () => simCall("delay"));
+    const minutes = v => !isNum(v) ? "–" : Number(v) < 90 ? `${fmt.n(v)} min` : `${(Number(v) / 60).toFixed(1)} h`;
+    function drawBank(s, kpi) {
+      if (!$("#bank-card") || !s) return;
+      state.bankRunning = s.running; speed = s.speed;
+      $$("[data-speed]", app).forEach(b => b.classList.toggle("on", Number(b.dataset.speed) === s.speed));
+      $("#bank-go").innerHTML = s.running ? `<i data-lucide="pause"></i><span>Pause the bank</span>` : `<i data-lucide="play"></i><span>Open the bank</span>`;
+      icons($("#bank-go"));
+      if (kpi) $("#bank-clock").textContent = `Bank time ${fmt.dt(kpi.AS_OF)}`;
+      $("#bank-status").textContent = s.note || (s.running ? `Open. Payments flow in at ${(s.speeds.find(x => x.value === s.speed) || {}).label || ""}; the full reconciliation runs after every batch.` : "Closed. Open it and payments start flowing in.");
+      $("#bank-incident").textContent = [s.outage ? `${s.outage.bank} is down${s.outage.until ? ` until ${fmt.dt(s.outage.until)}` : " from the next batch"}.` : "", s.delay_pending ? "The next NPCI file will come late." : ""].filter(Boolean).join(" ");
+      const st = s.stats;
+      if (!st) { $("#bank-stats").innerHTML = `<div class="empty">Nothing has flowed through yet.</div>`; return; }
+      const waiting = st.injected - st.caught;
+      $("#bank-stats").innerHTML = [
+        ["Payments processed", fmt.n(st.payments), `since ${fmt.dt(st.since)}`],
+        ["Breaks caught", fmt.n(st.caught), st.by_class.filter(c => c.caught > 0).map(c => `${fmt.n(c.caught)} ${classMeta(c.class).label.toLowerCase()}`).join(" · ") || "none yet"],
+        ["Waiting for an NPCI file", fmt.n(waiting), "cannot be confirmed until NPCI reports"],
+        ["Time to catch, median", minutes(st.median_minutes), `bank time from payment to flag · slowest ${minutes(st.max_minutes)}`],
+        ["Auto-reversals by payee banks", fmt.n(s.counts.reversals), `${fmt.n(s.counts.files)} NPCI files arrived`],
+      ].map(([l, v, d]) => `<div><dt>${esc(l)}</dt><dd>${esc(v)}</dd><small>${esc(d)}</small></div>`).join("");
+      $("#bank-recent").innerHTML = st.recent.length ? `<table class="data compact"><tbody>${st.recent.map(r => `<tr class="clickable" data-open="${esc(r.EXC_ID)}" tabindex="0">
+          <td>${classTag(r.TRUE_CLASS)}</td><td class="n">${paise(r.AMOUNT_PAISE)}</td><td>${esc(r.BANK)}</td>
+          <td class="cell-sub">paid ${fmt.dt(r.TXN_TS)}<br>caught ${fmt.dt(r.FIRST_SEEN_AS_OF)}</td><td>${r.TAT_STATE ? statePill(r.TAT_STATE) : pill("Closed", "neutral")}</td></tr>`).join("")}</tbody></table>`
+        : `<div class="empty">Breaks appear here the moment the reconciliation finds them. A failed debit needs its NPCI file first.</div>`;
+      bindRowClicks($("#bank-recent"));
+    }
+    function drawPeople(list) {
+      const el = $("#bank-people");
+      if (!el) return;
+      el.innerHTML = (list || []).length ? list.map(p => `<span class="person"><i class="dot ${esc(p.role)}"></i>${esc(p.name)} <small>${esc(p.role)}</small></span>`).join("") : `<span class="subtle">Set your name under Acting as to appear here.</span>`;
+      who.people(list);
+    }
     const drawPay = () => { $("#pay-go span").textContent = `Pay ${fmt.rs($("#pay-amount").value || 0)}`; };
     const drawScenarios = () => {
       $("#pay-scenarios").innerHTML = LIVE_GROUPS.map(([t, keys]) => `<div class="sc-group">${esc(t)}</div>` + keys.map(k => `<label class="sc ${k === scenario ? "on" : ""}"><input type="radio" name="sc" value="${esc(k)}" ${k === scenario ? "checked" : ""}><span>${esc(sc[k].label)}</span></label>`).join("")).join("");
@@ -582,7 +665,12 @@
     if ($("#live-reset")) $("#live-reset").addEventListener("click", async () => {
       try { watch.reset = (await call("/api/live/reset", {})).id; toast("Resetting. The demo returns to the original dataset in about 20 seconds."); } catch (e) { toast(esc(e.message), true); }
     });
-    const refreshFigures = () => { call("/api/overview").then(setContext).catch(() => { /* header only */ }); liveAccuracy(); };
+    let lastAcc = 0;
+    const refreshFigures = () => {
+      call("/api/overview").then(setContext).catch(() => { /* header only */ });
+      if (Date.now() - lastAcc > 8000) { lastAcc = Date.now(); liveAccuracy(); }   // the bank refreshes often; the check is heavier
+    };
+    let lastTicks = -1;
     const token = state.liveToken = {};
     (async () => { while (state.liveToken === token && $("#live-feed")) {   // not awaited: the page has finished rendering
       let busy = false;
@@ -591,10 +679,11 @@
         if (state.liveToken !== token || !$("#live-feed")) break;
         if (st.seq < since) { $("#live-feed").innerHTML = ""; }
         since = st.seq;
-        busy = Boolean(st.run || st.working || st.queued);
+        busy = Boolean(st.run || st.working || st.queued) && !(st.sim && st.sim.running);
         pushEvents(st.events);
         liveSteps(st.run || st.last_run, m);
-        const f = (st.kpi.MISSING_FILES || [])[0];
+        drawBank(st.sim, st.kpi); drawPeople(st.people);
+        const f = (st.kpi.MISSING_FILES || []).find(x => (st.late_file || []).some(l => String(x.SETTLEMENT_DT).slice(0, 10) === l.SETTLEMENT_DT && Number(x.CYCLE_NO) === Number(l.CYCLE_NO)));
         $("#file-text").textContent = f ? `${fmt.n(f.BREAKS)} breaks are waiting on the NPCI file for ${fmt.dayLong(f.SETTLEMENT_DT)}, cycle ${f.CYCLE_NO}. Deliver it and watch them clear.` : "The file has arrived. Those breaks have cleared.";
         if (!watch.file) $("#file-go").disabled = !f;
         const payments = st.mine.filter(j => j.kind === "payment");
@@ -611,6 +700,7 @@
         const l = finished("file");
         if (l) { $("#file-note").hidden = false; $("#file-note").textContent = `${fmt.n(l.rows)} NPCI records loaded. Breaks waiting on the file: ${fmt.n(l.before)} to ${fmt.n(l.after)}.`; refreshFigures(); }
         if (finished("reset")) { toast("The demo is back to the original dataset."); refreshFigures(); }
+        if (st.sim && st.sim.counts.ticks !== lastTicks) { if (lastTicks >= 0) refreshFigures(); lastTicks = st.sim.counts.ticks; }
       } catch (e) { /* the next poll retries */ }
       await sleep(busy ? 500 : 1500);
     } })();
@@ -1070,7 +1160,7 @@
         <h4><i data-lucide="${m.icon}"></i>${esc(m.label)} ${target} ${pill(title(a.STATUS), STATUS_TONE[a.STATUS] || "neutral")}</h4>
         <p class="wrap">${esc(a.RATIONALE || "")}</p>${impact}
         ${own ? `<div class="impact muted"><i data-lucide="users"></i>You proposed this, so a second person must decide it.</div>` : ""}
-        ${proposed && who.role() !== "approver" ? `<div class="impact muted"><i data-lucide="users"></i>Switch to ${who.other("approver")} at the top right to decide this.</div>` : ""}
+        ${proposed && who.role() !== "approver" && !own ? `<div class="impact muted"><i data-lucide="users"></i>An approver decides this. Anyone working as an approver can, except the person who proposed it.</div>` : ""}
         <div class="meta"><span>Proposed by ${esc(a.CREATED_BY)} · ${fmt.dt(a.CREATED)}</span>${a.DECIDED_BY ? `<span>Decided by ${esc(a.DECIDED_BY)} · ${fmt.dt(a.DECIDED)}</span>` : ""}<span class="mono">${esc(a.ACTION_ID)}</span></div></div>
       <div class="side-acts">${proposed && who.role() === "approver" ? `<button class="btn" data-decide="reject" data-id="${esc(a.ACTION_ID)}" type="button"><i data-lucide="x"></i>Reject</button>
         <button class="btn primary" data-decide="approve" data-id="${esc(a.ACTION_ID)}" type="button" ${own ? "disabled" : ""}><i data-lucide="check"></i>Approve</button>` : ""}</div></div>`;
@@ -1342,30 +1432,32 @@
       const el = document.createElement("div");
       el.className = "gate";
       el.innerHTML = `<form class="gate-card"><img src="/static/favicon.svg" alt=""><h1>TAT Guard</h1><p>Every stuck rupee, on a clock.</p>
+        <label for="gate-name">Your name</label><input id="gate-name" maxlength="40" autocomplete="name" placeholder="e.g. Priya Nair" required>
+        <label>Your role</label><div class="seg-pick" id="gate-role"><button class="on" data-r="analyst" type="button">Analyst</button><button data-r="approver" type="button">Approver</button></div>
         <label for="gate-code">Access code</label><input id="gate-code" type="password" autocomplete="off" required>
         <div class="gate-err" role="alert">${esc(message || "")}</div><button class="btn gold" type="submit">Open the demo</button>
         <small>All data is synthetic. No real bank, account or payment is involved.</small></form>`;
       document.body.appendChild(el);
+      let role = "analyst";
+      $$("[data-r]", el).forEach(b => b.addEventListener("click", () => { role = b.dataset.r; $$("[data-r]", el).forEach(x => x.classList.toggle("on", x === b)); }));
+      if (state.pendingCode) $("#gate-code", el).value = state.pendingCode;
       $("form", el).addEventListener("submit", async e => {
         e.preventDefault();
         try {
-          state.session = await call("/api/session", { code: $("#gate-code", el).value.trim() });
+          state.session = await call("/api/session", { code: $("#gate-code", el).value.trim(), name: $("#gate-name", el).value, role });
           el.remove(); done();
         } catch (err) { $(".gate-err", el).textContent = err.message; }
       });
-      $("#gate-code", el).focus();
+      $("#gate-name", el).focus();
     });
   }
   async function signIn() {
     state.session = await call("/api/session");
     if (state.session.authenticated) return;
-    const code = new URLSearchParams(location.search).get("code");
-    if (code) {
-      try { state.session = await call("/api/session", { code }); return; }
-      catch (e) { await gate(e.message); return; }
-      finally { history.replaceState(null, "", location.pathname + location.hash); }
-    }
-    await gate();
+    // a link with ?code= fills the code in; everyone still says who they are
+    state.pendingCode = new URLSearchParams(location.search).get("code") || "";
+    if (state.pendingCode) history.replaceState(null, "", location.pathname + location.hash);
+    await gate(state.pendingCode ? "Enter your name and pick a role to join." : "");
   }
   function applyPublicMode() {
     if (!state.session.public) return;

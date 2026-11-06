@@ -64,7 +64,7 @@ PUBLIC_HOSTS = [h.strip().lower() for h in os.environ.get("TATGUARD_PUBLIC_HOST"
 IDLE_RESET_S = int(os.environ.get("TATGUARD_IDLE_RESET_MIN", "30")) * 60 if SESSIONS.public else 0
 # What one visitor (or, for "*_all", everyone together) can do. DESIGN: enough to explore, not enough to run up a bill.
 LIMITS = {"pay": (12, 60), "storm": (2, 60), "storm_all": (6, 3600), "clock": (10, 60), "late_file": (2, 60), "ask": (8, 60),
-          "ask_all": (150, 86400), "propose": (30, 60), "decide": (20, 60), "login": (12, 60)}
+          "ask_all": (150, 86400), "propose": (30, 60), "decide": (20, 60), "login": (12, 60), "sim": (20, 60)}
 LOCAL_ONLY = {"/api/connection", "/api/imports", "/api/connect", "/api/import", "/api/upload", "/api/live/reset"}
 OPEN_ROUTES = {"/api/session", "/api/meta"}     # everything else under /api/ needs a session
 # Scripts are locked to this server. Styles allow inline: the page's charts and bars size themselves with style attributes.
@@ -179,9 +179,10 @@ def limited(key: str, name: str):
 
 
 def need_role(sess: dict, role: str):
+    if not sess.get("name"):
+        raise ValueError("Set your name under Acting as, at the top right. It goes in the audit log.")
     if sess["role"] != role:
-        who = auth.PERSONAS[role]
-        raise ValueError(f"Switch to {who['name']} ({who['title'].lower()}) at the top right to do this.")
+        raise ValueError(f"This needs the {auth.ROLES[role].lower()} role. Change it under Acting as, at the top right.")
 
 
 def run_ask(job, question, sess):
@@ -236,7 +237,7 @@ def api_propose(body, sess):
     no_import_running()
     need_role(sess, "analyst")
     limited(sess["tag"], "propose")
-    user = auth.PERSONAS[sess["role"]]["name"]
+    user = sess["name"]
     targets = body.get("targets") or [body.get("target_ref", "")]
     if not isinstance(targets, list) or not 1 <= len(targets) <= 50:
         raise ValueError("between 1 and 50 targets per request")
@@ -258,7 +259,14 @@ def api_decide(action_id, approve, sess):
     no_import_running()
     need_role(sess, "approver")
     limited(sess["tag"], "decide")
-    return engine().decide(sess["tag"], action_id, approve, auth.PERSONAS[sess["role"]]["name"])
+    return engine().decide(sess["tag"], action_id, approve, sess["name"])
+
+
+def api_sim(body, sess):
+    """Open, pause or speed up the bank, or cause an incident. Shared by everyone watching, like a real bank."""
+    no_import_running()
+    limited(sess["tag"], "sim")
+    return engine().sim.control(str(body.get("action", "")), body)
 
 
 def api_pay(body, sess):
@@ -298,7 +306,7 @@ def api_reset(body, sess):
 def api_session_view(sess, can_reset: bool = False) -> dict:
     a = AGENT["agent"]
     return {"authenticated": sess is not None, "public": SESSIONS.public, "can_reset": can_reset, "persona": auth.persona(sess) if sess else None,
-            "personas": auth.PERSONAS, "ai": {"mode": a.mode if a else None, "ready": a is not None, "error": AGENT["error"]}}
+            "roles": auth.ROLES, "online": SESSIONS.online(), "ai": {"mode": a.mode if a else None, "ready": a is not None, "error": AGENT["error"]}}
 
 
 def api_meta(_):
@@ -326,7 +334,7 @@ GET_ROUTES = {
     "/api/live/verify": lambda a: engine().verify(),
 }
 SESSION_GET_ROUTES = {       # routes that depend on who is asking
-    "/api/live/state": lambda a, s: engine().state(api._int(a.get("since"), 0, 0, 10 ** 12), s["tag"]),
+    "/api/live/state": lambda a, s: {**engine().state(api._int(a.get("since"), 0, 0, 10 ** 12), s["tag"]), "people": SESSIONS.online()},
     "/api/ask/status": api_ask_status,
 }
 POST_ROUTES = {
@@ -337,6 +345,7 @@ POST_ROUTES = {
     "/api/live/clock": api_clock,
     "/api/live/late-file": api_late_file,
     "/api/live/reset": api_reset,
+    "/api/live/sim": api_sim,
 }
 
 
@@ -460,22 +469,25 @@ class Handler(BaseHTTPRequestHandler):
         self._send(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
     def _session_post(self, body):
-        """Sign in, switch between the analyst and the approver, or sign out."""
+        """Sign in, change your name or role, or sign out."""
         if body.get("action") == "logout":
             SESSIONS.close(self.token)
             self.new_cookie = auth.clear_cookie()
             self.sess = None
             return api_session_view(None)
-        role = str(body.get("role") or "analyst")
-        if role not in auth.PERSONAS:
-            raise ValueError("unknown role")
+        role = auth.clean_role(body.get("role") or (self.sess or {}).get("role"))
+        name = auth.clean_name(body["name"]) if "name" in body else None
         if self.sess is None:
             limited("login:" + self._client(), "login")
             if not SESSIONS.code_ok(body.get("code", "")):
                 return {"error": "That access code is not right."}, HTTPStatus.UNAUTHORIZED
-            self.token, self.sess = SESSIONS.open(role)
+            if name is None:
+                raise ValueError("Enter your name. It goes in the audit log.")
+            self.token, self.sess = SESSIONS.open(role, name)
             self.new_cookie = auth.set_cookie(self.token, self._secure())
         self.sess["role"] = role
+        if name is not None:
+            self.sess["name"] = name
         return api_session_view(self.sess, self._from_this_machine())
 
     def do_POST(self):

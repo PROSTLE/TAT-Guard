@@ -27,8 +27,8 @@ def test_no_code_means_local_use():
 
 def test_sessions_open_close_and_expire():
     s = auth.Sessions("x")
-    token, sess = s.open("approver")
-    assert s.get(token) is sess and sess["role"] == "approver" and s.get("nope") is None and s.get(None) is None
+    token, sess = s.open("approver", "Arjun")
+    assert s.get(token) is sess and sess["role"] == "approver" and sess["name"] == "Arjun" and s.get("nope") is None and s.get(None) is None
     sess["created"] = time.time() - auth.SESSION_TTL_S - 1
     assert s.get(token) is None
     token, _ = s.open()
@@ -50,10 +50,33 @@ def test_cookie_round_trip():
     assert auth.cookie_from("a=1") is None and auth.cookie_from(None) is None
 
 
-def test_the_two_demo_people_are_different_people_to_maker_checker():
-    analyst, approver = auth.PERSONAS["analyst"]["name"], auth.PERSONAS["approver"]["name"]
-    assert not actions.same_person(actions.ANALYST_PREFIX + analyst, approver)
-    assert actions.same_person(actions.ANALYST_PREFIX + analyst, analyst)
+def test_two_people_are_two_people_to_maker_checker():
+    assert not actions.same_person(actions.ANALYST_PREFIX + "Priya Nair", "Arjun Mehta")
+    assert actions.same_person(actions.ANALYST_PREFIX + "Priya Nair", " priya nair ")
+
+
+@pytest.mark.parametrize("bad", ["", " ", "<b>x</b>", "1Priya", "a" * 41, "x'); DROP", None])
+def test_bad_names_are_refused(bad):
+    with pytest.raises(ValueError):
+        auth.clean_name(bad)
+
+
+def test_names_are_tidied_and_roles_checked():
+    assert auth.clean_name("  Priya   Nair ") == "Priya Nair"
+    assert auth.clean_role("approver") == "approver"
+    with pytest.raises(ValueError):
+        auth.clean_role("admin")
+
+
+def test_online_lists_named_people_seen_recently_once_each():
+    s = auth.Sessions("x")
+    s.open("analyst", "Priya")
+    s.open("approver", "Arjun")
+    s.open("analyst", "priya")      # the same person in a second tab
+    _, ghost = s.open("analyst", "Old")
+    ghost["seen"] -= auth.ONLINE_S + 1
+    s.open("analyst", "")
+    assert [p["name"] for p in s.online()] == ["Priya", "Arjun"] or [p["name"] for p in s.online()] == ["priya", "Arjun"]
 
 
 def test_routes_that_change_the_database_are_local_only():
